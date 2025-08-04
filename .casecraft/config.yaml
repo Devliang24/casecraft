@@ -1,0 +1,14 @@
+llm:
+  provider: bigmodel
+  model: glm-4.5-x
+  api_key: db474e8a869844bbbdcf1a111a5eafa4.0SY1uazDVWJQZPHA
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  temperature: 0.7
+
+output:
+  directory: test_cases_cli_final
+  organize_by_tag: false
+
+processing:
+  workers: 1
+  force_regenerate: true
