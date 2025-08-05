@@ -119,35 +119,53 @@ make build
 
 ### Core Components
 
-**Configuration Management (`casecraft/core/config_manager.py`)**
-- Handles secure API key storage in `~/.casecraft/config.yaml`
-- Supports environment variable overrides (`CASECRAFT_*`)
-- Configuration priority: CLI args > env vars > config file
+The core module is organized into functional sub-packages:
 
-**API Documentation Processing (`casecraft/core/api_parser.py`)**
+#### Parsing Module (`casecraft/core/parsing/`)
+**API Documentation Processing (`api_parser.py`)**
 - Supports OpenAPI 3.0 and Swagger 2.0 (JSON/YAML)
 - Loads from URLs and local file system  
 - Advanced filtering by tags and path patterns
 
-**LLM Integration (`casecraft/core/llm_client.py`)**
+**Headers Analysis (`headers_analyzer.py`)**
+- Analyzes API endpoints for authentication requirements
+- Recommends appropriate header scenarios for testing
+
+#### Generation Module (`casecraft/core/generation/`)
+**LLM Integration (`llm_client.py`)**
 - BigModel GLM-4.5-X client implementation with single concurrency
 - Built-in rate limiting and retry logic for HTTP 429 errors
 - Structured error handling for different failure modes
 
-**Test Case Generation (`casecraft/core/test_generator.py`)**
+**Test Case Generation (`test_generator.py`)**
 - Single LLM call per API endpoint generates all test cases
 - Enforces coverage requirements (2+ positive, 3+ negative, boundary cases)
 - JSON schema validation for generated test cases
 
-**Incremental Generation (`casecraft/core/state_manager.py`)**
+**Batch Strategy (`batch_strategy.py`)**
+- Optimizes batch processing for BigModel API
+- Classifies endpoint complexity for efficient processing
+
+#### Management Module (`casecraft/core/management/`)
+**Configuration Management (`config_manager.py`)**
+- Handles secure API key storage in `~/.casecraft/config.yaml`
+- Supports environment variable overrides (`CASECRAFT_*`)
+- Configuration priority: CLI args > env vars > config file
+
+**Incremental Generation (`state_manager.py`)**
 - Tracks API changes in `.casecraft_state.json`
 - Skip unchanged endpoints to avoid unnecessary LLM calls
 - Content-based hashing for change detection
 
-**Output Management (`casecraft/core/output_manager.py`)**
+**Output Management (`output_manager.py`)**
 - JSON format output (one file per API endpoint)
 - Optional organization by tag into subdirectories
 - File naming templates and conflict resolution
+
+#### Main Engine (`casecraft/core/engine.py`)
+- Coordinates all components for test generation
+- Manages concurrent processing and error handling
+- Provides progress tracking and reporting
 
 ### Data Models (`casecraft/models/`)
 
@@ -229,5 +247,6 @@ When making commits to this project, follow these practices:
 
 ### Recent Major Changes
 
+- **v0.3.0**: Reorganized core module into functional sub-packages (parsing, generation, management)
 - **v0.2.0**: Renamed `BigModelClient` to `LLMClient` for future extensibility
 - **v0.1.0**: Initial MVP release with BigModel GLM-4.5-X support

@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
-from casecraft.core.config_manager import ConfigManager, ConfigError
+from casecraft.core.management.config_manager import ConfigManager, ConfigError
 from casecraft.models.config import CaseCraftConfig, LLMConfig
 
 

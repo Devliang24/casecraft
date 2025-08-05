@@ -8,10 +8,10 @@ from typing import Dict, List, Optional
 from rich.console import Console
 from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
-from casecraft.core.api_parser import APIParser, APIParseError
-from casecraft.core.llm_client import create_llm_client, LLMClient, LLMError, LLMRateLimitError
-from casecraft.core.state_manager import StateManager, StateError
-from casecraft.core.test_generator import TestCaseGenerator, TestGeneratorError
+from casecraft.core.parsing.api_parser import APIParser, APIParseError
+from casecraft.core.generation.llm_client import create_llm_client, LLMClient, LLMError, LLMRateLimitError
+from casecraft.core.management.state_manager import StateManager, StateError
+from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.test_case import TestCaseCollection

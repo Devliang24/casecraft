@@ -10,8 +10,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from casecraft.core.config_manager import ConfigManager, ConfigError
-from casecraft.core.generator_engine import GeneratorEngine, GeneratorError, GenerationResult
+from casecraft.core.management.config_manager import ConfigManager, ConfigError
+from casecraft.core.engine import GeneratorEngine, GeneratorError, GenerationResult
 from casecraft.models.config import CaseCraftConfig
 
 
