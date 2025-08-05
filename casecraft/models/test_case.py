@@ -26,6 +26,7 @@ class TestCaseMetadata(BaseModel):
 class TestCase(BaseModel):
     """A single test case definition."""
     
+    test_id: int = Field(..., description="Test case ID/sequence number")
     name: str = Field(..., description="Test case name")
     description: str = Field(..., description="Test case detailed description")
     method: str = Field(..., description="HTTP method (GET/POST/PUT/DELETE/etc)")
@@ -43,9 +44,6 @@ class TestCase(BaseModel):
     )
     expected_response_content: Optional[Dict[str, Any]] = Field(
         None, description="Expected response content assertions"
-    )
-    response_time_limit: Optional[int] = Field(
-        None, description="Maximum acceptable response time in milliseconds"
     )
     business_rules: List[str] = Field(
         default_factory=list, description="Business logic validation rules"

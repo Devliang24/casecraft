@@ -62,6 +62,7 @@ class TestTestCaseGenerator:
         test_cases_json = [
             # Positive test cases (3)
             {
+                "test_id": 1,
                 "name": "创建用户成功",
                 "description": "使用有效数据成功创建用户",
                 "method": "POST",
@@ -73,12 +74,12 @@ class TestTestCaseGenerator:
                 "expected_status": 201,
                 "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
                 "expected_response_content": {"resource_created": True, "new_resource_id": True},
-                "response_time_limit": 3000,
-                "business_rules": ["Created resource should have unique ID"],
+                "business_rules": ["创建的资源应具有唯一ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
             {
+                "test_id": 2,
                 "name": "创建管理员用户",
                 "description": "创建具有管理员角色的用户",
                 "method": "POST",
@@ -90,12 +91,12 @@ class TestTestCaseGenerator:
                 "expected_status": 201,
                 "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
                 "expected_response_content": {"resource_created": True, "new_resource_id": True},
-                "response_time_limit": 3000,
-                "business_rules": ["Created resource should have unique ID"],
+                "business_rules": ["创建的资源应具有唯一ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
             {
+                "test_id": 3,
                 "name": "创建用户包含可选字段",
                 "description": "创建用户时包含所有可选字段",
                 "method": "POST",
@@ -107,13 +108,13 @@ class TestTestCaseGenerator:
                 "expected_status": 201,
                 "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
                 "expected_response_content": {"resource_created": True, "new_resource_id": True},
-                "response_time_limit": 3000,
-                "business_rules": ["Created resource should have unique ID"],
+                "business_rules": ["创建的资源应具有唯一ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
             # Negative test cases (4)
             {
+                "test_id": 4,
                 "name": "缺少必填字段name",
                 "description": "创建用户时缺少必填字段name",
                 "method": "POST", 
@@ -127,6 +128,7 @@ class TestTestCaseGenerator:
                 "tags": ["users"]
             },
             {
+                "test_id": 5,
                 "name": "邮箱格式错误",
                 "description": "使用无效的邮箱格式创建用户",
                 "method": "POST",
@@ -140,6 +142,7 @@ class TestTestCaseGenerator:
                 "tags": ["users"]
             },
             {
+                "test_id": 6,
                 "name": "请求体为空",
                 "description": "发送空的请求体",
                 "method": "POST",
@@ -153,6 +156,7 @@ class TestTestCaseGenerator:
                 "tags": ["users"]
             },
             {
+                "test_id": 7,
                 "name": "字段类型错误",
                 "description": "name字段使用数字类型而非字符串",
                 "method": "POST",
@@ -167,6 +171,7 @@ class TestTestCaseGenerator:
             },
             # Boundary test cases (3)
             {
+                "test_id": 8,
                 "name": "用户名最大长度",
                 "description": "使用最大允许长度的用户名",
                 "method": "POST",
@@ -180,6 +185,7 @@ class TestTestCaseGenerator:
                 "tags": ["users"]
             },
             {
+                "test_id": 9,
                 "name": "用户名最小长度",
                 "description": "使用最小长度的用户名（1个字符）",
                 "method": "POST",
@@ -193,6 +199,7 @@ class TestTestCaseGenerator:
                 "tags": ["users"]
             },
             {
+                "test_id": 10,
                 "name": "空字符串用户名",
                 "description": "使用空字符串作为用户名",
                 "method": "POST",
@@ -286,6 +293,7 @@ class TestTestCaseGenerator:
         # Mock response with insufficient positive cases (only 1, need at least 2)
         test_cases_json = [
             {
+                "test_id": 1,
                 "name": "正向测试1",
                 "description": "第一个正向测试用例（需要至少2个）",
                 "method": "GET",
@@ -299,6 +307,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 2,
                 "name": "负向测试1",
                 "description": "第一个负向测试用例",
                 "method": "GET",
@@ -312,6 +321,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 3,
                 "name": "负向测试2",
                 "description": "第二个负向测试用例",
                 "method": "GET",
@@ -325,6 +335,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 4,
                 "name": "负向测试3",
                 "description": "第三个负向测试用例",
                 "method": "GET",
@@ -338,6 +349,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 5,
                 "name": "负向测试4",
                 "description": "第四个负向测试用例",
                 "method": "GET",
@@ -372,6 +384,7 @@ class TestTestCaseGenerator:
         # Mock response with insufficient negative cases (only 1, need at least 2)
         test_cases_json = [
             {
+                "test_id": 1,
                 "name": "正向测试1",
                 "description": "第一个正向测试用例",
                 "method": "GET",
@@ -385,6 +398,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 2,
                 "name": "正向测试2",
                 "description": "第二个正向测试用例",
                 "method": "GET",
@@ -398,6 +412,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 3,
                 "name": "负向测试1",
                 "description": "第一个负向测试用例（需要至少2个）",
                 "method": "GET", 
@@ -433,6 +448,7 @@ class TestTestCaseGenerator:
         test_cases_json = [
             # Positive test cases (3)
             {
+                "test_id": 1,
                 "name": "获取用户列表成功",
                 "description": "成功获取用户列表",
                 "method": "GET",
@@ -446,6 +462,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 2,
                 "name": "分页获取用户",
                 "description": "使用分页参数获取用户列表",
                 "method": "GET",
@@ -459,6 +476,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 3,
                 "name": "按条件筛选用户",
                 "description": "根据状态筛选活跃用户",
                 "method": "GET",
@@ -473,6 +491,7 @@ class TestTestCaseGenerator:
             },
             # Negative test cases (4)
             {
+                "test_id": 4,
                 "name": "无效的分页参数",
                 "description": "使用负数作为页码",
                 "method": "GET",
@@ -486,6 +505,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 5,
                 "name": "缺少认证头",
                 "description": "请求未包含认证信息",
                 "method": "GET",
@@ -499,6 +519,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 6,
                 "name": "权限不足", 
                 "description": "普通用户尝试访问管理接口",
                 "method": "GET",
@@ -512,6 +533,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 7,
                 "name": "无效的筛选参数",
                 "description": "使用不存在的状态值",
                 "method": "GET",
@@ -526,6 +548,7 @@ class TestTestCaseGenerator:
             },
             # Boundary test cases (3)
             {
+                "test_id": 8,
                 "name": "最大分页限制",
                 "description": "请求每页最大允许数量",
                 "method": "GET",
@@ -539,6 +562,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 9,
                 "name": "超出最大分页限制",
                 "description": "请求超过最大允许的每页数量",
                 "method": "GET",
@@ -552,6 +576,7 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
+                "test_id": 10,
                 "name": "分页参数为零",
                 "description": "使用0作为分页大小",
                 "method": "GET",
@@ -591,9 +616,9 @@ class TestTestCaseGenerator:
         assert "JSON" in system_prompt
         assert "expected_response_headers" in system_prompt
         assert "expected_response_content" in system_prompt
-        assert "response_time_limit" in system_prompt
         assert "business_rules" in system_prompt
         assert "完整的预期验证信息" in system_prompt
+        assert "test_id" in system_prompt
     
     def test_build_prompt(self):
         """Test prompt building."""
@@ -633,6 +658,7 @@ class TestTestCaseGenerator:
         schema = generator._get_test_case_schema()
         
         assert schema["type"] == "object"
+        assert "test_id" in schema["required"]
         assert "name" in schema["required"]
         assert "description" in schema["required"]
         assert "method" in schema["required"]
@@ -643,6 +669,11 @@ class TestTestCaseGenerator:
         # Check test_type enum values
         test_type_prop = schema["properties"]["test_type"]
         assert test_type_prop["enum"] == ["positive", "negative", "boundary"]
+        
+        # Check test_id property
+        test_id_prop = schema["properties"]["test_id"]
+        assert test_id_prop["type"] == "integer"
+        assert test_id_prop["minimum"] == 1
     
     @pytest.mark.asyncio
     async def test_metadata_setting(self):
@@ -656,6 +687,7 @@ class TestTestCaseGenerator:
         test_cases_json = [
             # Positive test cases (3)
             {
+                "test_id": 1,
                 "name": "健康检查成功",
                 "description": "测试健康检查接口返回正常状态",
                 "method": "GET",
@@ -669,6 +701,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 2,
                 "name": "带认证的健康检查",
                 "description": "使用有效认证令牌进行健康检查",
                 "method": "GET",
@@ -682,6 +715,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 3,
                 "name": "详细健康检查",
                 "description": "获取详细的健康状态信息",
                 "method": "GET",
@@ -696,6 +730,7 @@ class TestTestCaseGenerator:
             },
             # Negative test cases (4)
             {
+                "test_id": 4,
                 "name": "健康检查使用错误方法",
                 "description": "使用POST方法访问健康检查接口应返回405",
                 "method": "GET",
@@ -709,6 +744,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 5,
                 "name": "健康检查带无效查询参数",
                 "description": "带有无效查询参数的健康检查",
                 "method": "GET",
@@ -722,6 +758,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 6,
                 "name": "健康检查错误路径",
                 "description": "访问不存在的健康检查路径",
                 "method": "GET",
@@ -735,6 +772,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 7,
                 "name": "无效的认证令牌",
                 "description": "使用无效的认证令牌访问健康检查",
                 "method": "GET",
@@ -749,6 +787,7 @@ class TestTestCaseGenerator:
             },
             # Boundary test cases (3)
             {
+                "test_id": 8,
                 "name": "超长查询参数",
                 "description": "使用超长查询参数进行健康检查",
                 "method": "GET",
@@ -762,6 +801,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 9,
                 "name": "空查询参数",
                 "description": "使用空查询参数进行健康检查",
                 "method": "GET",
@@ -775,6 +815,7 @@ class TestTestCaseGenerator:
                 "tags": ["health"]
             },
             {
+                "test_id": 10,
                 "name": "特殊字符查询参数",
                 "description": "使用特殊字符作为查询参数",
                 "method": "GET",
@@ -811,3 +852,22 @@ class TestTestCaseGenerator:
             assert test_case.metadata.api_version == "2.0.0"
             assert test_case.metadata.llm_model == "glm-4.5-x"
             assert test_case.metadata.generated_at is not None
+    
+    def test_expected_response_schema_never_null(self):
+        """Test that expected_response_schema is never null."""
+        llm_client = Mock()
+        generator = TestCaseGenerator(llm_client)
+        
+        # Test default schema generation
+        schema_200 = generator._get_default_response_schema("200")
+        assert schema_200 is not None
+        assert schema_200["type"] == "object"
+        assert schema_200["additionalProperties"] == True
+        
+        schema_400 = generator._get_default_response_schema("400")
+        assert schema_400 is not None
+        assert "error" in schema_400["properties"]
+        
+        schema_500 = generator._get_default_response_schema("500")
+        assert schema_500 is not None
+        assert "error" in schema_500["properties"]

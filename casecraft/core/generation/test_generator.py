@@ -93,6 +93,7 @@ class TestCaseGenerator:
 3. 优先覆盖关键场景，不要为了凑数而生成无意义的用例
 
 测试用例要求：
+- 每个测试用例必须有test_id（从1开始的递增编号）
 - 使用中文命名，name和description都用中文描述
 - 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)、401(未认证)、403(无权限)
 - 测试数据要真实且简短
@@ -123,6 +124,12 @@ Headers设置智能规则：
    - 无效的Accept头 (返回406)
    - 其他情况可以为空
 
+5. 参数生成智能规则：
+   - GET/DELETE: 如果路径包含占位符({参数})则需要path_params，可能有query_params
+   - POST/PUT/PATCH: 通常有body，path_params仅在路径包含占位符时存在，query_params较少使用
+   - 如果参数为空，可以省略该字段（不要生成空对象{})
+   - 注意：根据实际API规范生成必要的参数
+
 重要：
 - 直接返回JSON数组，不要任何解释或markdown标记
 - 确保JSON格式正确，不要包含注释
@@ -131,7 +138,6 @@ Headers设置智能规则：
 - 每个测试用例必须包含完整的预期验证信息：
   * expected_response_headers: 响应头验证（如Content-Type、Location等）
   * expected_response_content: 响应内容断言（字段存在性、值类型等）
-  * response_time_limit: 响应时间限制（毫秒）
   * business_rules: 业务逻辑验证规则列表"""
     
     def _build_prompt(self, endpoint: APIEndpoint) -> str:
@@ -341,6 +347,7 @@ Return the test cases as a JSON array:"""
         return {
             "type": "object",
             "required": [
+                "test_id",
                 "name",
                 "description", 
                 "method",
@@ -349,6 +356,11 @@ Return the test cases as a JSON array:"""
                 "test_type"
             ],
             "properties": {
+                "test_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Test case ID/sequence number"
+                },
                 "name": {
                     "type": "string",
                     "minLength": 1,
@@ -375,11 +387,11 @@ Return the test cases as a JSON array:"""
                 },
                 "path_params": {
                     "type": "object", 
-                    "description": "Path parameters"
+                    "description": "Path parameters (optional, only if path contains placeholders)"
                 },
                 "query_params": {
                     "type": "object",
-                    "description": "Query parameters"
+                    "description": "Query parameters (optional)"
                 },
                 "body": {
                     "oneOf": [
@@ -416,11 +428,6 @@ Return the test cases as a JSON array:"""
                     "type": "object",
                     "description": "Expected response content assertions"
                 },
-                "response_time_limit": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Maximum response time in milliseconds"
-                },
                 "business_rules": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -443,12 +450,19 @@ Return the test cases as a JSON array:"""
         # Extract response schemas from endpoint
         response_schemas = self._extract_response_schemas(endpoint)
         
-        for test_case in test_cases:
+        # Ensure each test case has a proper test_id
+        for i, test_case in enumerate(test_cases, 1):
+            if not hasattr(test_case, 'test_id') or test_case.test_id is None:
+                test_case.test_id = i
+            
             status_str = str(test_case.expected_status)
             
             # Add response schema for all cases with defined schemas
             if status_str in response_schemas:
                 test_case.expected_response_schema = response_schemas[status_str]
+            else:
+                # Provide default schema based on status code
+                test_case.expected_response_schema = self._get_default_response_schema(status_str)
             
             # Add expected response headers
             test_case.expected_response_headers = self._extract_response_headers(endpoint, status_str)
@@ -457,15 +471,6 @@ Return the test cases as a JSON array:"""
             content_assertions = self._extract_response_content_assertions(endpoint, status_str)
             if content_assertions:
                 test_case.expected_response_content = content_assertions
-            
-            # Add response time expectations based on complexity
-            complexity = self._evaluate_endpoint_complexity(endpoint)
-            if complexity["complexity_level"] == "simple":
-                test_case.response_time_limit = 1000  # 1 second
-            elif complexity["complexity_level"] == "medium":
-                test_case.response_time_limit = 3000  # 3 seconds
-            else:
-                test_case.response_time_limit = 5000  # 5 seconds
             
             # Add business rules based on endpoint characteristics
             business_rules = self._generate_business_rules(test_case, endpoint)
@@ -498,6 +503,54 @@ Return the test cases as a JSON array:"""
                         break
         
         return schemas
+    
+    def _get_default_response_schema(self, status_code: str) -> Dict[str, Any]:
+        """Get default response schema based on status code.
+        
+        Args:
+            status_code: HTTP status code as string
+            
+        Returns:
+            Default response schema
+        """
+        status_int = int(status_code)
+        
+        # Success responses (2xx)
+        if 200 <= status_int < 300:
+            return {
+                "type": "object",
+                "additionalProperties": True
+            }
+        
+        # Client error responses (4xx)
+        elif 400 <= status_int < 500:
+            return {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"},
+                    "message": {"type": "string"},
+                    "code": {"type": "string"}
+                },
+                "additionalProperties": True
+            }
+        
+        # Server error responses (5xx)
+        elif 500 <= status_int < 600:
+            return {
+                "type": "object",
+                "properties": {
+                    "error": {"type": "string"},
+                    "message": {"type": "string"}
+                },
+                "additionalProperties": True
+            }
+        
+        # Default fallback
+        else:
+            return {
+                "type": "object",
+                "additionalProperties": True
+            }
     
     def _extract_response_headers(self, endpoint: APIEndpoint, status_code: str) -> Dict[str, Any]:
         """Extract expected response headers for a given status code.
@@ -782,22 +835,22 @@ Return the test cases as a JSON array:"""
         
         # Rules based on HTTP method
         if endpoint.method == "POST" and test_case.test_type == TestType.POSITIVE:
-            rules.append("Created resource should have unique ID")
-            rules.append("Response should include resource location")
+            rules.append("创建的资源应具有唯一ID")
+            rules.append("响应应包含资源位置")
         
         elif endpoint.method == "PUT" and test_case.test_type == TestType.POSITIVE:
-            rules.append("Updated resource should maintain data integrity")
-            rules.append("Version or timestamp should be updated")
+            rules.append("更新的资源应保持数据完整性")
+            rules.append("版本号或时间戳应被更新")
         
         elif endpoint.method == "DELETE" and test_case.test_type == TestType.POSITIVE:
-            rules.append("Resource should be marked as deleted or removed")
-            rules.append("Subsequent GET should return 404")
+            rules.append("资源应被标记为已删除或移除")
+            rules.append("后续的GET请求应返回404")
         
         elif endpoint.method == "GET" and test_case.test_type == TestType.POSITIVE:
-            rules.append("Response data should be consistent with database")
+            rules.append("响应数据应与数据库保持一致")
             if "list" in endpoint.path.lower() or "search" in endpoint.path.lower():
-                rules.append("Pagination should be handled correctly")
-                rules.append("Results should match filter criteria")
+                rules.append("分页应被正确处理")
+                rules.append("结果应匹配过滤条件")
         
         # Rules based on authentication
         has_auth = any(p.name.lower() in ["authorization", "api-key", "x-api-key"] 
@@ -805,26 +858,26 @@ Return the test cases as a JSON array:"""
         
         if has_auth and test_case.test_type == TestType.NEGATIVE:
             if "unauthorized" in test_case.description.lower():
-                rules.append("Access should be denied without valid authentication")
+                rules.append("无有效认证时应拒绝访问")
             elif "forbidden" in test_case.description.lower():
-                rules.append("User permissions should be validated")
+                rules.append("应验证用户权限")
         
         # Rules based on path parameters
         if test_case.path_params and "{id}" in endpoint.path:
             if test_case.test_type == TestType.NEGATIVE:
-                rules.append("Invalid ID format should be rejected")
-                rules.append("Non-existent ID should return appropriate error")
+                rules.append("无效的ID格式应被拒绝")
+                rules.append("不存在的ID应返回适当的错误")
             else:
-                rules.append("ID should reference existing resource")
+                rules.append("ID应引用存在的资源")
         
         # Rules for validation scenarios
         if test_case.test_type == TestType.NEGATIVE and "validation" in test_case.description.lower():
-            rules.append("Input validation errors should be clearly described")
-            rules.append("Error response should include field-specific messages")
+            rules.append("输入验证错误应被清晰描述")
+            rules.append("错误响应应包含字段级别的错误信息")
         
         # Rules for boundary cases
         if test_case.test_type == TestType.BOUNDARY:
-            rules.append("Boundary values should be handled gracefully")
-            rules.append("System limits should be respected")
+            rules.append("边界值应被优雅地处理")
+            rules.append("系统限制应被遵守")
         
         return rules
