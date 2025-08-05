@@ -71,6 +71,10 @@ class TestTestCaseGenerator:
                 "query_params": {},
                 "body": {"name": "John Doe", "email": "john@example.com"},
                 "expected_status": 201,
+                "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
+                "expected_response_content": {"resource_created": True, "new_resource_id": True},
+                "response_time_limit": 3000,
+                "business_rules": ["Created resource should have unique ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
@@ -84,6 +88,10 @@ class TestTestCaseGenerator:
                 "query_params": {},
                 "body": {"name": "Admin User", "email": "admin@example.com", "role": "admin"},
                 "expected_status": 201,
+                "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
+                "expected_response_content": {"resource_created": True, "new_resource_id": True},
+                "response_time_limit": 3000,
+                "business_rules": ["Created resource should have unique ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
@@ -97,6 +105,10 @@ class TestTestCaseGenerator:
                 "query_params": {},
                 "body": {"name": "Full User", "email": "full@example.com", "phone": "123456789", "age": 25},
                 "expected_status": 201,
+                "expected_response_headers": {"Content-Type": "application/json", "Location": "<created-resource-url>"},
+                "expected_response_content": {"resource_created": True, "new_resource_id": True},
+                "response_time_limit": 3000,
+                "business_rules": ["Created resource should have unique ID"],
                 "test_type": "positive",
                 "tags": ["users"]
             },
@@ -271,29 +283,16 @@ class TestTestCaseGenerator:
         
         endpoint = APIEndpoint(method="GET", path="/users")
         
-        # Mock response with insufficient positive cases (but sufficient negative)
+        # Mock response with insufficient positive cases (only 1, need at least 2)
         test_cases_json = [
             {
                 "name": "正向测试1",
-                "description": "第一个正向测试用例",
+                "description": "第一个正向测试用例（需要至少2个）",
                 "method": "GET",
                 "path": "/users",
                 "headers": {},
                 "path_params": {},
                 "query_params": {},
-                "body": None,
-                "expected_status": 200,
-                "test_type": "positive",
-                "tags": []
-            },
-            {
-                "name": "正向测试2",
-                "description": "第二个正向测试用例（但还需要第三个）",
-                "method": "GET",
-                "path": "/users",
-                "headers": {},
-                "path_params": {},
-                "query_params": {"limit": 10},
                 "body": None,
                 "expected_status": 200,
                 "test_type": "positive",
@@ -359,7 +358,7 @@ class TestTestCaseGenerator:
         )
         llm_client.generate.return_value = llm_response
         
-        with pytest.raises(TestGeneratorError, match="At least 3 positive test cases"):
+        with pytest.raises(TestGeneratorError, match="At least 2 positive test cases"):
             await generator.generate_test_cases(endpoint)
     
     @pytest.mark.asyncio
@@ -370,7 +369,7 @@ class TestTestCaseGenerator:
         
         endpoint = APIEndpoint(method="GET", path="/users")
         
-        # Mock response with insufficient negative cases (but sufficient positive)
+        # Mock response with insufficient negative cases (only 1, need at least 2)
         test_cases_json = [
             {
                 "name": "正向测试1",
@@ -399,21 +398,8 @@ class TestTestCaseGenerator:
                 "tags": []
             },
             {
-                "name": "正向测试3",
-                "description": "第三个正向测试用例",
-                "method": "GET",
-                "path": "/users",
-                "headers": {},
-                "path_params": {},
-                "query_params": {"limit": 10},
-                "body": None,
-                "expected_status": 200,
-                "test_type": "positive",
-                "tags": []
-            },
-            {
                 "name": "负向测试1",
-                "description": "第一个负向测试用例",
+                "description": "第一个负向测试用例（需要至少2个）",
                 "method": "GET", 
                 "path": "/users",
                 "headers": {},
@@ -421,32 +407,6 @@ class TestTestCaseGenerator:
                 "query_params": {"page": -1},
                 "body": None,
                 "expected_status": 400,
-                "test_type": "negative",
-                "tags": []
-            },
-            {
-                "name": "负向测试2",
-                "description": "第二个负向测试用例",
-                "method": "GET", 
-                "path": "/users",
-                "headers": {},
-                "path_params": {},
-                "query_params": {"limit": "invalid"},
-                "body": None,
-                "expected_status": 400,
-                "test_type": "negative",
-                "tags": []
-            },
-            {
-                "name": "负向测试3",
-                "description": "第三个负向测试用例（但还需要第四个）",
-                "method": "GET", 
-                "path": "/users",
-                "headers": {},
-                "path_params": {},
-                "query_params": {},
-                "body": None,
-                "expected_status": 401,
                 "test_type": "negative",
                 "tags": []
             }
@@ -458,7 +418,7 @@ class TestTestCaseGenerator:
         )
         llm_client.generate.return_value = llm_response
         
-        with pytest.raises(TestGeneratorError, match="At least 4 negative test cases"):
+        with pytest.raises(TestGeneratorError, match="At least 2 negative test cases"):
             await generator.generate_test_cases(endpoint)
     
     @pytest.mark.asyncio
@@ -626,10 +586,14 @@ class TestTestCaseGenerator:
         system_prompt = generator._get_system_prompt()
         
         assert "你是一个API用例设计测试专家" in system_prompt
-        assert "正向测试" in system_prompt
-        assert "负向测试" in system_prompt
-        assert "边界测试" in system_prompt
+        assert "测试用例要求" in system_prompt
+        assert "负向测试的Headers策略" in system_prompt
         assert "JSON" in system_prompt
+        assert "expected_response_headers" in system_prompt
+        assert "expected_response_content" in system_prompt
+        assert "response_time_limit" in system_prompt
+        assert "business_rules" in system_prompt
+        assert "完整的预期验证信息" in system_prompt
     
     def test_build_prompt(self):
         """Test prompt building."""

@@ -312,3 +312,174 @@ class HeadersAnalyzer:
         """
         all_scenarios = self.analyze_headers(endpoint, spec_data)
         return all_scenarios.get(test_type, all_scenarios.get("positive", {}))
+    
+    def analyze_response_headers(self, endpoint: APIEndpoint, status_code: str = "200") -> Dict[str, str]:
+        """分析并生成期望的响应头。
+        
+        Args:
+            endpoint: API端点信息
+            status_code: HTTP状态码
+            
+        Returns:
+            期望的响应头字典
+        """
+        response_headers = {}
+        
+        # 基础响应头
+        response_headers["Content-Type"] = "application/json"
+        
+        # 基于状态码的响应头
+        if status_code == "201":
+            response_headers["Location"] = "<created-resource-url>"
+        elif status_code in ["200", "201"] and endpoint.method in ["POST", "PUT", "PATCH"]:
+            response_headers["Location"] = "<resource-url>"
+        
+        # 基于HTTP方法的响应头
+        if endpoint.method == "GET" and status_code == "200":
+            # GET请求的缓存头
+            response_headers["Cache-Control"] = "max-age=300"
+            response_headers["ETag"] = "<etag-value>"
+            response_headers["Last-Modified"] = "<timestamp>"
+        
+        # 基于端点路径的响应头
+        if "/api/" in endpoint.path.lower():
+            response_headers["X-API-Version"] = "v1"
+        
+        # 分页相关的响应头（针对列表接口）
+        if ("list" in endpoint.path.lower() or 
+            "search" in endpoint.path.lower() or 
+            endpoint.path.endswith("s")):
+            if status_code == "200":
+                response_headers["X-Total-Count"] = "<total-items>"
+                response_headers["X-Page-Size"] = "<page-size>"
+                response_headers["X-Current-Page"] = "<current-page>"
+        
+        # 安全相关的响应头
+        response_headers["X-Content-Type-Options"] = "nosniff"
+        response_headers["X-Frame-Options"] = "DENY"
+        
+        # 速率限制相关的响应头
+        response_headers["X-RateLimit-Limit"] = "<limit>"
+        response_headers["X-RateLimit-Remaining"] = "<remaining>"
+        response_headers["X-RateLimit-Reset"] = "<reset-time>"
+        
+        # 基于端点的响应内容分析
+        if endpoint.responses and status_code in endpoint.responses:
+            response_def = endpoint.responses[status_code]
+            
+            # 从OpenAPI规范中提取响应头定义
+            if "headers" in response_def:
+                for header_name, header_def in response_def["headers"].items():
+                    if "schema" in header_def:
+                        schema = header_def["schema"]
+                        if "example" in schema:
+                            response_headers[header_name] = schema["example"]
+                        elif "default" in schema:
+                            response_headers[header_name] = schema["default"]
+                        else:
+                            response_headers[header_name] = "<header-value>"
+            
+            # 基于内容类型的响应头
+            if "content" in response_def:
+                for content_type in response_def["content"].keys():
+                    if "json" in content_type.lower():
+                        response_headers["Content-Type"] = content_type
+                        break
+                    elif "xml" in content_type.lower():
+                        response_headers["Content-Type"] = content_type
+                        break
+        
+        return response_headers
+    
+    def get_content_validation_rules(self, endpoint: APIEndpoint, status_code: str = "200") -> Dict[str, Any]:
+        """获取响应内容验证规则。
+        
+        Args:
+            endpoint: API端点信息
+            status_code: HTTP状态码
+            
+        Returns:
+            内容验证规则字典
+        """
+        validation_rules = {}
+        
+        # 基于状态码的基础验证规则
+        if status_code == "200":
+            if endpoint.method == "GET":
+                validation_rules["response_not_empty"] = True
+                if "list" in endpoint.path.lower() or endpoint.path.endswith("s"):
+                    validation_rules["is_array"] = True
+                    validation_rules["array_items_structure"] = True
+                else:
+                    validation_rules["is_object"] = True
+            elif endpoint.method in ["POST", "PUT", "PATCH"]:
+                validation_rules["resource_id_present"] = True
+                validation_rules["operation_success"] = True
+        
+        elif status_code == "201":
+            validation_rules["resource_created"] = True
+            validation_rules["new_resource_id"] = True
+            validation_rules["creation_timestamp"] = True
+        
+        elif status_code == "400":
+            validation_rules["error_message_present"] = True
+            validation_rules["error_code_present"] = True
+            validation_rules["validation_details"] = True
+        
+        elif status_code == "401":
+            validation_rules["auth_error_message"] = "Authentication required"
+            validation_rules["error_code"] = "UNAUTHORIZED"
+        
+        elif status_code == "403":
+            validation_rules["auth_error_message"] = "Access denied"
+            validation_rules["error_code"] = "FORBIDDEN"
+        
+        elif status_code == "404":
+            validation_rules["error_message"] = "Resource not found"
+            validation_rules["error_code"] = "NOT_FOUND"
+        
+        elif status_code == "422":
+            validation_rules["validation_errors_array"] = True
+            validation_rules["field_specific_errors"] = True
+        
+        # 从OpenAPI规范中提取详细的验证规则
+        if endpoint.responses and status_code in endpoint.responses:
+            response_def = endpoint.responses[status_code]
+            
+            if "content" in response_def:
+                for content_type, content_def in response_def["content"].items():
+                    if "json" in content_type.lower() and "schema" in content_def:
+                        schema = content_def["schema"]
+                        
+                        # 提取必填字段
+                        if "required" in schema:
+                            validation_rules["required_fields"] = schema["required"]
+                        
+                        # 提取字段类型验证
+                        if "properties" in schema:
+                            field_types = {}
+                            for field_name, field_schema in schema["properties"].items():
+                                if "type" in field_schema:
+                                    field_types[field_name] = field_schema["type"]
+                            if field_types:
+                                validation_rules["field_types"] = field_types
+                        
+                        # 提取格式验证
+                        if "format" in schema:
+                            validation_rules["format_validation"] = schema["format"]
+                        
+                        # 提取枚举值验证
+                        if "enum" in schema:
+                            validation_rules["enum_validation"] = schema["enum"]
+                        
+                        # 提取数组相关验证
+                        if schema.get("type") == "array" and "items" in schema:
+                            validation_rules["array_item_validation"] = True
+                            if "minItems" in schema:
+                                validation_rules["min_items"] = schema["minItems"]
+                            if "maxItems" in schema:
+                                validation_rules["max_items"] = schema["maxItems"]
+                        
+                        break
+        
+        return validation_rules
