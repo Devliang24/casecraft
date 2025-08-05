@@ -6,13 +6,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CaseCraft** is a CLI tool for API testing that parses API documentation (OpenAPI/Swagger) and uses BigModel LLM to generate structured test case data in JSON format.
 
+## BigModel API Configuration
+
+For development and testing, you can use the following BigModel API configuration:
+
+```yaml
+llm:
+  provider: bigmodel
+  model: glm-4.5-x
+  api_key: db474e8a869844bbbdcf1a111a5eafa4.0SY1uazDVWJQZPHA
+  base_url: https://open.bigmodel.cn/api/paas/v4
+  timeout: 60
+  max_retries: 3
+```
+
+**Important Notes:**
+- This API key is for development/testing only
+- Never commit sensitive API keys to public repositories in production
+- The key should be stored in `~/.casecraft/config.yaml` or environment variables
+- BigModel GLM-4.5-X model currently generates 8-10 test cases per endpoint
+
 ## Core Architecture Requirements
 
 ### Command Structure
 - `casecraft init` - Initialize configuration with secure API key storage in `~/.casecraft/config.yaml`
 - `casecraft generate <source>` - Generate test cases from API docs (URL or local file)
 - Support for filtering: `--include-tag`, `--exclude-tag`, `--include-path`
-- Concurrent processing: `--workers N`
+- Concurrent processing: `--workers N` (BigModel only supports 1)
 - Force regeneration: `--force`
 - Preview mode: `--dry-run`
 
@@ -45,10 +65,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
    - Future: Support for pytest, jest, and Postman collections
 
 ### Test Case Coverage Requirements
-Each generated test case must include:
-- At least two successful positive cases
-- At least three different negative cases (missing required fields, type errors, format errors)
-- Boundary value testing for numeric/length constraints
+
+**Dynamic Test Case Generation Based on Complexity (Updated 2025-08-05)**
+
+The system now evaluates endpoint complexity and adjusts test case requirements accordingly:
+
+1. **Simple Endpoints** (complexity score ≤ 5)
+   - Total: 5-6 test cases
+   - Positive: 2 cases
+   - Negative: 2-3 cases
+   - Boundary: 1 case
+   - Examples: Simple GET endpoints without parameters
+
+2. **Medium Complexity** (complexity score 6-10)
+   - Total: 7-9 test cases
+   - Positive: 2-3 cases
+   - Negative: 3-4 cases
+   - Boundary: 1-2 cases
+   - Examples: GET with query parameters, simple POST operations
+
+3. **Complex Endpoints** (complexity score > 10)
+   - Total: 10-12 test cases
+   - Positive: 3-4 cases
+   - Negative: 4-5 cases
+   - Boundary: 2-3 cases
+   - Examples: POST/PUT with nested request bodies, multiple parameters
+
+**Complexity Factors:**
+- Number of parameters (path, query, header)
+- Request body complexity (nested objects, arrays)
+- Operation type (POST/PUT/PATCH add complexity)
+- Authentication requirements
+- Number of response types
+
+**Quality over Quantity:**
+The system prioritizes generating meaningful test cases over meeting arbitrary numbers. Each test case should have a clear purpose and avoid redundancy.
 
 ### Development Guidelines
 

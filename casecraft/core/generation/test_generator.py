@@ -85,18 +85,20 @@ class TestCaseGenerator:
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
-        return """你是一个API测试专家。根据提供的API规范生成测试用例。
+        return """你是一个API用例设计测试专家。根据提供的API规范和复杂度要求生成测试用例。
 
-生成要求：
-1. 正向测试(必须2个)：包含所有必填参数的有效请求，测试不同的有效场景
-2. 负向测试(3-4个)：缺少参数、类型错误、格式错误、超出范围
-3. 边界测试(1-2个)：最小值、最大值、空值
+生成原则：
+1. 根据接口复杂度生成适量的测试用例，避免冗余
+2. 每个测试用例都应该有明确的测试目的和价值
+3. 优先覆盖关键场景，不要为了凑数而生成无意义的用例
 
-测试用例限制：
-- 总数6-8个测试用例，确保正向测试不少于2个
+测试用例要求：
 - 使用中文命名，name和description都用中文描述
-- 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)
+- 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)、401(未认证)、403(无权限)
 - 测试数据要真实且简短
+- 确保测试用例具有实际意义，避免重复或无效的测试
+
+质量优于数量：宁可生成少一些高质量的测试用例，也不要生成大量重复或无意义的用例。
 
 Headers设置智能规则：
 1. 基于HTTP方法的Headers：
@@ -136,6 +138,9 @@ Headers设置智能规则：
         Returns:
             Formatted prompt string
         """
+        # Evaluate endpoint complexity
+        complexity = self._evaluate_endpoint_complexity(endpoint)
+        
         # Build endpoint description
         endpoint_info = {
             "method": endpoint.method,
@@ -172,6 +177,18 @@ Headers设置智能规则：
         # Analyze headers recommendations
         headers_scenarios = self.headers_analyzer.analyze_headers(endpoint)
         
+        # Build complexity guidance
+        complexity_guidance = f"""
+**接口复杂度分析:**
+- 复杂度级别: {complexity['complexity_level']}
+- 影响因素: {', '.join(complexity['factors']) if complexity['factors'] else '基础接口'}
+- 建议生成数量:
+  - 总计: {complexity['recommended_counts']['total'][0]}-{complexity['recommended_counts']['total'][1]}个测试用例
+  - 正向测试: {complexity['recommended_counts']['positive'][0]}-{complexity['recommended_counts']['positive'][1]}个
+  - 负向测试: {complexity['recommended_counts']['negative'][0]}-{complexity['recommended_counts']['negative'][1]}个
+  - 边界测试: {complexity['recommended_counts']['boundary'][0]}-{complexity['recommended_counts']['boundary'][1]}个
+"""
+
         # Build the prompt
         prompt = f"""Generate comprehensive test cases for the following API endpoint:
 
@@ -180,17 +197,18 @@ Headers设置智能规则：
 {json.dumps(endpoint_info, indent=2)}
 ```
 
+{complexity_guidance}
+
 **Headers建议 (智能分析结果):**
 - 正向测试建议headers: {json.dumps(headers_scenarios.get('positive', {}), indent=2)}
 - 负向测试场景: {list(headers_scenarios.keys())}
-```
 
 **Required Test Case JSON Schema:**
 ```json
 {json.dumps(self._test_case_schema, indent=2)}
 ```
 
-Generate test cases that thoroughly test this endpoint. Include positive cases, negative cases, and boundary cases as specified in the system prompt.
+请根据接口复杂度生成相应数量的高质量测试用例。每个用例都应该有明确的测试目的，避免重复或无意义的测试。
 
 Return the test cases as a JSON array:"""
         
@@ -243,7 +261,7 @@ Return the test cases as a JSON array:"""
         return test_cases
     
     def _validate_test_coverage(self, test_cases: List[TestCase], endpoint: APIEndpoint) -> None:
-        """Validate that test cases meet coverage requirements.
+        """Validate that test cases meet coverage requirements based on endpoint complexity.
         
         Args:
             test_cases: Generated test cases
@@ -255,17 +273,46 @@ Return the test cases as a JSON array:"""
         if not test_cases:
             raise TestGeneratorError("No test cases generated")
         
+        # Evaluate endpoint complexity to get requirements
+        complexity = self._evaluate_endpoint_complexity(endpoint)
+        
         # Count test types
         positive_count = sum(1 for tc in test_cases if tc.test_type == TestType.POSITIVE)
         negative_count = sum(1 for tc in test_cases if tc.test_type == TestType.NEGATIVE)
         boundary_count = sum(1 for tc in test_cases if tc.test_type == TestType.BOUNDARY)
+        total_count = len(test_cases)
+        
+        # Get minimum requirements based on complexity
+        min_positive = complexity['recommended_counts']['positive'][0]
+        min_negative = complexity['recommended_counts']['negative'][0]
+        min_total = complexity['recommended_counts']['total'][0]
         
         # Check minimum requirements
-        if positive_count < 2:
-            raise TestGeneratorError("At least 2 positive test cases are required")
+        if positive_count < min_positive:
+            raise TestGeneratorError(
+                f"At least {min_positive} positive test cases are required for "
+                f"{complexity['complexity_level']} endpoint, got {positive_count}"
+            )
         
-        if negative_count < 3:
-            raise TestGeneratorError("At least 3 negative test cases are required")
+        if negative_count < min_negative:
+            raise TestGeneratorError(
+                f"At least {min_negative} negative test cases are required for "
+                f"{complexity['complexity_level']} endpoint, got {negative_count}"
+            )
+        
+        # Check total count
+        if total_count < min_total:
+            raise TestGeneratorError(
+                f"At least {min_total} test cases are required for "
+                f"{complexity['complexity_level']} endpoint, got {total_count}"
+            )
+        
+        # Log test case distribution with complexity info
+        self.logger.info(
+            f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint "
+            f"({endpoint.method} {endpoint.path}): "
+            f"{positive_count} positive, {negative_count} negative, {boundary_count} boundary"
+        )
         
         # Validate that each test case has required fields
         for i, test_case in enumerate(test_cases):
@@ -435,3 +482,132 @@ Return the test cases as a JSON array:"""
         
         # Default to current status or 400
         return test_case.expected_status if test_case.expected_status in [400, 404, 422] else 400
+    
+    def _evaluate_endpoint_complexity(self, endpoint: APIEndpoint) -> Dict[str, Any]:
+        """Evaluate the complexity of an API endpoint.
+        
+        Args:
+            endpoint: API endpoint to evaluate
+            
+        Returns:
+            Dictionary with complexity metrics and recommended test case counts
+        """
+        complexity_score = 0
+        factors = []
+        
+        # 1. Parameter complexity
+        param_count = len(endpoint.parameters) if endpoint.parameters else 0
+        if param_count > 0:
+            complexity_score += param_count * 2
+            factors.append(f"{param_count} parameters")
+        
+        # 2. Request body complexity
+        if endpoint.request_body:
+            body_complexity = self._evaluate_schema_complexity(endpoint.request_body)
+            complexity_score += body_complexity
+            if body_complexity > 5:
+                factors.append("complex request body")
+            elif body_complexity > 0:
+                factors.append("simple request body")
+        
+        # 3. Operation type complexity
+        if endpoint.method in ["POST", "PUT", "PATCH"]:
+            complexity_score += 3
+            factors.append(f"{endpoint.method} operation")
+        elif endpoint.method == "DELETE":
+            complexity_score += 2
+            factors.append("DELETE operation")
+        
+        # 4. Authentication requirements
+        has_auth = any(p.name.lower() in ["authorization", "api-key", "x-api-key"] 
+                      for p in (endpoint.parameters or []))
+        if has_auth:
+            complexity_score += 2
+            factors.append("authentication required")
+        
+        # 5. Response complexity
+        if endpoint.responses:
+            response_count = len(endpoint.responses)
+            if response_count > 3:
+                complexity_score += 2
+                factors.append(f"{response_count} response types")
+        
+        # Determine recommended test case counts based on complexity
+        if complexity_score <= 5:
+            # Simple endpoint: 5-6 test cases
+            min_total = 5
+            max_total = 6
+            positive_range = (2, 2)
+            negative_range = (2, 3)
+            boundary_range = (1, 1)
+            complexity_level = "simple"
+        elif complexity_score <= 10:
+            # Medium complexity: 7-9 test cases
+            min_total = 7
+            max_total = 9
+            positive_range = (2, 3)
+            negative_range = (3, 4)
+            boundary_range = (1, 2)
+            complexity_level = "medium"
+        else:
+            # Complex endpoint: 10-12 test cases
+            min_total = 10
+            max_total = 12
+            positive_range = (3, 4)
+            negative_range = (4, 5)
+            boundary_range = (2, 3)
+            complexity_level = "complex"
+        
+        return {
+            "complexity_score": complexity_score,
+            "complexity_level": complexity_level,
+            "factors": factors,
+            "recommended_counts": {
+                "total": (min_total, max_total),
+                "positive": positive_range,
+                "negative": negative_range,
+                "boundary": boundary_range
+            }
+        }
+    
+    def _evaluate_schema_complexity(self, schema: Dict[str, Any]) -> int:
+        """Evaluate the complexity of a JSON schema.
+        
+        Args:
+            schema: JSON schema to evaluate
+            
+        Returns:
+            Complexity score
+        """
+        score = 0
+        
+        if isinstance(schema, dict):
+            # Check for content types
+            if "content" in schema:
+                for content_type, content_schema in schema.get("content", {}).items():
+                    if "schema" in content_schema:
+                        score += self._evaluate_schema_complexity(content_schema["schema"])
+            
+            # Check for object properties
+            if schema.get("type") == "object":
+                properties = schema.get("properties", {})
+                score += len(properties)
+                
+                # Check for required fields
+                required = schema.get("required", [])
+                score += len(required)
+                
+                # Check for nested objects
+                for prop_schema in properties.values():
+                    if isinstance(prop_schema, dict) and prop_schema.get("type") == "object":
+                        score += 2  # Nested objects add complexity
+                    elif isinstance(prop_schema, dict) and prop_schema.get("type") == "array":
+                        score += 1  # Arrays add some complexity
+            
+            # Check for arrays
+            elif schema.get("type") == "array":
+                score += 2
+                if "items" in schema:
+                    score += self._evaluate_schema_complexity(schema["items"])
+        
+        return score
