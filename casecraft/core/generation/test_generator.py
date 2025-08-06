@@ -155,8 +155,13 @@ Headers设置智能规则：
      示例：path: "/api/v1/categories/{category_id}", path_params: {"category_id": 123}
    - GET/DELETE: 如果路径包含占位符则需要path_params，可能有query_params
    - POST/PUT/PATCH: 通常有body，path_params仅在路径包含占位符时存在，query_params较少使用
-   - 重要：如果没有参数，完全不要包含path_params或query_params字段，不要生成null或空对象
-   - 注意：根据实际API规范生成必要的参数
+   - 极其重要的规则：
+     * 当端点有路径参数时，才包含path_params字段，值为具体参数对象
+     * 当端点有查询参数时，才包含query_params字段，值为具体参数对象
+     * 当端点没有对应参数时，绝对不要包含该字段（不要设为null、{}、""或任何空值）
+     * 示例：POST /api/v1/auth/register 只需要 body，不要包含 path_params 或 query_params
+     * 示例：GET /api/v1/categories/{id} 需要 path_params: {"id": 1}，不包含 query_params
+     * 示例：GET /api/v1/products?limit=10 需要 query_params: {"limit": 10}，不包含 path_params
 
 重要：
 - 直接返回JSON数组，不要任何解释或markdown标记
@@ -299,12 +304,14 @@ Return the test cases as a JSON array:"""
                 validate(test_case_data, self._test_case_schema)
                 
                 # Clean up null/empty parameters before creating TestCase
-                if 'path_params' in test_case_data:
-                    if test_case_data['path_params'] is None or test_case_data['path_params'] == {}:
-                        del test_case_data['path_params']
-                if 'query_params' in test_case_data:
-                    if test_case_data['query_params'] is None or test_case_data['query_params'] == {}:
-                        del test_case_data['query_params']
+                # This ensures we don't have unnecessary null or empty dict fields
+                params_to_check = ['path_params', 'query_params']
+                for param_field in params_to_check:
+                    if param_field in test_case_data:
+                        value = test_case_data[param_field]
+                        # Remove if None, empty dict, empty string, or string "null"
+                        if value is None or value == {} or value == '' or value == 'null':
+                            del test_case_data[param_field]
                 
                 # Convert to TestCase object
                 test_case = TestCase(**test_case_data)

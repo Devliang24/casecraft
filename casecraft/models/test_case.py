@@ -51,6 +51,27 @@ class TestCase(BaseModel):
     test_type: TestType = Field(..., description="Test type: positive/negative/boundary")
     tags: List[str] = Field(default_factory=list, description="Test tag list")
 
+    def model_dump(self, **kwargs):
+        """Custom model dump to exclude None and empty dict parameters."""
+        data = super().model_dump(**kwargs)
+        
+        # Remove path_params if None or empty dict
+        if 'path_params' in data:
+            if data['path_params'] is None or data['path_params'] == {}:
+                del data['path_params']
+        
+        # Remove query_params if None or empty dict
+        if 'query_params' in data:
+            if data['query_params'] is None or data['query_params'] == {}:
+                del data['query_params']
+        
+        return data
+
+    def model_dump_json(self, **kwargs):
+        """Custom JSON serialization."""
+        kwargs['exclude_none'] = True
+        return super().model_dump_json(**kwargs)
+
     class Config:
         """Pydantic configuration."""
         
