@@ -104,7 +104,7 @@ def _interactive_setup(config: CaseCraftConfig) -> CaseCraftConfig:
     
     # BigModel only supports single worker
     config.processing.workers = 1
-    console.print("Workers: [cyan]1[/cyan] (BigModel 单并发限制)"
+    console.print("Workers: [cyan]1[/cyan] (BigModel 单并发限制)")
     
     return config
 

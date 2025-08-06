@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 import yaml
 from pydantic import ValidationError
+from dotenv import load_dotenv
 
 from casecraft.models.config import CaseCraftConfig
 
@@ -18,15 +19,26 @@ class ConfigError(Exception):
 class ConfigManager:
     """Manages CaseCraft configuration loading and saving."""
     
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Optional[Path] = None, load_env: bool = True):
         """Initialize configuration manager.
         
         Args:
             config_path: Optional custom path to config file.
                         Defaults to ~/.casecraft/config.yaml
+            load_env: Whether to automatically load .env file
         """
         self.config_path = config_path or CaseCraftConfig.get_config_path()
         self.config_dir = self.config_path.parent
+        
+        # Load .env file if it exists
+        if load_env:
+            self._load_env_file()
+    
+    def _load_env_file(self) -> None:
+        """Load .env file from current working directory."""
+        env_file = Path.cwd() / ".env"
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
     
     def ensure_config_dir(self) -> None:
         """Ensure configuration directory exists."""
@@ -119,6 +131,8 @@ class ConfigManager:
         config_dict = config.dict()
         
         # Apply environment overrides
+        if env_overrides is None:
+            env_overrides = self.get_env_overrides()
         if env_overrides:
             self._apply_overrides(config_dict, env_overrides)
         
@@ -168,11 +182,31 @@ class ConfigManager:
         if bigmodel_api_key:
             overrides["llm.api_key"] = bigmodel_api_key
         
-        for key, value in os.environ.items():
-            if key.startswith(prefix):
-                # Convert CASECRAFT_LLM_API_KEY to llm.api_key
-                config_key = key[len(prefix):].lower().replace('_', '.')
-                
+        # Environment variable to config key mapping
+        env_mappings = {
+            'CASECRAFT_LLM_MODEL': 'llm.model',
+            'CASECRAFT_LLM_API_KEY': 'llm.api_key',
+            'CASECRAFT_LLM_BASE_URL': 'llm.base_url',
+            'CASECRAFT_LLM_TIMEOUT': 'llm.timeout',
+            'CASECRAFT_LLM_MAX_RETRIES': 'llm.max_retries',
+            'CASECRAFT_LLM_TEMPERATURE': 'llm.temperature',
+            'CASECRAFT_LLM_THINK': 'llm.think',
+            'CASECRAFT_LLM_STREAM': 'llm.stream',
+            'CASECRAFT_OUTPUT_DIRECTORY': 'output.directory',
+            'CASECRAFT_OUTPUT_ORGANIZE_BY_TAG': 'output.organize_by_tag',
+            'CASECRAFT_OUTPUT_FILENAME_TEMPLATE': 'output.filename_template',
+            'CASECRAFT_PROCESSING_WORKERS': 'processing.workers',
+            'CASECRAFT_PROCESSING_INCLUDE_TAGS': 'processing.include_tags',
+            'CASECRAFT_PROCESSING_EXCLUDE_TAGS': 'processing.exclude_tags',
+            'CASECRAFT_PROCESSING_INCLUDE_PATHS': 'processing.include_paths',
+            'CASECRAFT_PROCESSING_EXCLUDE_PATHS': 'processing.exclude_paths',
+            'CASECRAFT_PROCESSING_FORCE_REGENERATE': 'processing.force_regenerate',
+            'CASECRAFT_PROCESSING_DRY_RUN': 'processing.dry_run',
+        }
+        
+        for env_key, config_key in env_mappings.items():
+            value = os.getenv(env_key)
+            if value is not None:
                 # Handle boolean values
                 if value.lower() in ('true', 'false'):
                     value = value.lower() == 'true'
