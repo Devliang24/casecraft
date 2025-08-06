@@ -15,6 +15,8 @@ class LLMConfig(BaseModel):
     timeout: int = Field(default=60, description="Request timeout in seconds")
     max_retries: int = Field(default=3, description="Maximum retry attempts")
     temperature: float = Field(default=0.7, description="Temperature for generation")
+    think: bool = Field(default=False, description="Enable thinking process output (useful for debugging)")
+    stream: bool = Field(default=False, description="Enable streaming response (improves user experience)")
 
 
 class OutputConfig(BaseModel):

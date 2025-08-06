@@ -11,7 +11,7 @@ from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn
 from casecraft.core.parsing.api_parser import APIParser, APIParseError
 from casecraft.core.generation.llm_client import create_llm_client, LLMClient, LLMError, LLMRateLimitError
 from casecraft.core.management.state_manager import StateManager, StateError
-from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, TestGenerationResult
+from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, GenerationResult as TestGenerationResult
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.test_case import TestCaseCollection
@@ -167,19 +167,20 @@ class GeneratorEngine:
                 self._show_generation_summary(api_spec, to_generate, to_skip, dry_run)
                 
                 if not to_generate:
-                    self.console.print("[green]✨ All endpoints are up to date![/green]")
+                    self.console.print("[green]✨ 所有端点已是最新状态，无需重新生成！[/green]")
                     # All endpoints up to date is considered success
                     logging_context.set_success(True)
                     return result
                 
                 # Show batch generation optimization notice
                 if len(to_generate) > 10:
-                    self.console.print(f"[yellow]📊 Large batch detected: {len(to_generate)} endpoints[/yellow]")
-                    self.console.print(f"[dim]   - Using {self.config.processing.workers} concurrent workers[/dim]")
-                    self.console.print(f"[dim]   - Estimated time: ~{self._estimate_generation_time(len(to_generate))} minutes[/dim]")
+                    self.console.print(f"[yellow]📊 检测到大批量任务: {len(to_generate)} 个端点[/yellow]")
+                    workers_text = "单线程处理" if self.config.processing.workers == 1 else f"{self.config.processing.workers} 线程并行"
+                    self.console.print(f"[dim]   • 处理模式: {workers_text}[/dim]")
+                    self.console.print(f"[dim]   • 预计耗时: 约 {self._estimate_generation_time(len(to_generate))} 分钟[/dim]")
                 
                 if dry_run:
-                    self.console.print("[yellow]🔍 Dry run completed - no test cases generated[/yellow]")
+                    self.console.print("[yellow]🔍 预览完成 - 未实际生成测试用例[/yellow]")
                     # Dry run is considered success (no actual generation expected)
                     logging_context.set_success(True)
                     return result
@@ -234,8 +235,10 @@ class GeneratorEngine:
             else:
                 api_content = await self.api_parser._read_from_file(source)
             
-            self.console.print(f"[green]✓[/green] Loaded [bold]{api_spec.title}[/bold] v{api_spec.version}")
-            self.console.print(f"  Found {len(api_spec.endpoints)} API endpoints")
+            self.console.print(f"\n[green]✓[/green] 成功加载 API 文档")
+            self.console.print(f"  📄 名称: [bold]{api_spec.title}[/bold]")
+            self.console.print(f"  🎯 版本: v{api_spec.version}")
+            self.console.print(f"  📊 端点: {len(api_spec.endpoints)} 个\n")
             
             return api_spec, api_content
             
@@ -250,18 +253,20 @@ class GeneratorEngine:
         dry_run: bool
     ) -> None:
         """Show generation summary."""
-        action = "Would generate" if dry_run else "Generating"
+        action = "将生成" if dry_run else "开始生成"
         
         if to_generate:
-            self.console.print(f"\n[yellow]📋 {action} test cases for {len(to_generate)} endpoints:[/yellow]")
+            self.console.print(f"[yellow]📋 {action} {len(to_generate)} 个端点的测试用例:[/yellow]")
             for endpoint in to_generate[:5]:  # Show first 5
-                self.console.print(f"  • {endpoint.method} {endpoint.path}")
+                self.console.print(f"  • {endpoint.method:6} {endpoint.path}")
             
             if len(to_generate) > 5:
-                self.console.print(f"  ... and {len(to_generate) - 5} more")
+                self.console.print(f"  ... 及其他 {len(to_generate) - 5} 个端点")
         
         if to_skip:
-            self.console.print(f"\n[dim]⏭️  Skipping {len(to_skip)} unchanged endpoints[/dim]")
+            self.console.print(f"\n[dim]⏭️ 跳过 {len(to_skip)} 个未变更的端点[/dim]")
+        
+        self.console.print()
     
     async def _initialize_llm_components(self, api_version: Optional[str] = None) -> None:
         """Initialize LLM client and test generator.
@@ -297,7 +302,7 @@ class GeneratorEngine:
             rate_limit=1.0 if self.config.processing.workers >= 2 else 0.5
         )
         
-        # Create progress tracking
+        # Create progress tracking with friendly Chinese text
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -307,7 +312,7 @@ class GeneratorEngine:
             console=self.console
         ) as progress:
             
-            task = progress.add_task("Generating test cases...", total=len(endpoints))
+            task = progress.add_task("🚀 正在生成测试用例...", total=len(endpoints))
             
             # Create tasks for concurrent processing with rate limiting
             tasks = [
@@ -343,11 +348,11 @@ class GeneratorEngine:
         try:
             # Generate test cases
             generation_result = await self._test_generator.generate_test_cases(endpoint)
-            collection = generation_result.collection
-            token_usage = generation_result.token_usage
+            collection = generation_result.test_cases
             
-            # Add token usage to result tracking
-            result.add_token_usage(token_usage, success=True)
+            # Add token usage to result statistics
+            if generation_result.token_usage:
+                result.add_token_usage(generation_result.token_usage, success=True)
             
             # Save to file
             output_file = await self._save_test_cases(collection)
@@ -362,21 +367,37 @@ class GeneratorEngine:
             result.generated_count += 1
             result.generated_files.append(str(output_file))
             
-            # Update progress
-            progress.update(task_id, advance=1)
+            # Show detailed progress with token usage
+            if generation_result.token_usage:
+                # Format token count in a friendly way
+                tokens = generation_result.token_usage.total_tokens
+                if tokens >= 1000:
+                    token_display = f"{tokens/1000:.1f}K"
+                else:
+                    token_display = str(tokens)
+                token_info = f" ({token_display} tokens)"
+            else:
+                token_info = ""
+            
+            progress.update(task_id, advance=1, description=f"正在处理: {endpoint_id}")
+            
+            # Brief success log with friendly formatting
+            self.console.print(f"  [green]✓[/green] 生成 [bold]{len(collection.test_cases)}[/bold] 个测试用例 - {endpoint_id} [dim]{token_info}[/dim]")
             
         except (TestGeneratorError, LLMError, LLMRateLimitError) as e:
             result.failed_count += 1
             result.failed_endpoints.append(f"{endpoint_id}: {str(e)}")
             
-            self.console.print(f"[red]✗[/red] Failed to generate {endpoint_id}: {e}")
+            self.console.print(f"  [red]✗[/red] 生成失败 - {endpoint_id}")
+            self.console.print(f"    [dim red]原因: {str(e)[:80]}...[/dim red]")
             progress.update(task_id, advance=1)
             
         except Exception as e:
             result.failed_count += 1
             result.failed_endpoints.append(f"{endpoint_id}: Unexpected error: {str(e)}")
             
-            self.console.print(f"[red]✗[/red] Unexpected error for {endpoint_id}: {e}")
+            self.console.print(f"  [red]✗[/red] 意外错误 - {endpoint_id}")
+            self.console.print(f"    [dim red]错误: {str(e)[:80]}...[/dim red]")
             progress.update(task_id, advance=1)
     
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:

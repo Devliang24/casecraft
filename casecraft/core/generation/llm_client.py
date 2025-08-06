@@ -81,8 +81,8 @@ class LLMClient:
             payload = {
                 "model": self.config.model or "glm-4.5-x",
                 "messages": messages,
-                "think": False,  # Disable thinking process output
-                "stream": False,
+                "think": self.config.think,
+                "stream": self.config.stream,
                 "temperature": kwargs.get("temperature", self.config.temperature)
             }
             

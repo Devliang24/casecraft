@@ -2,6 +2,7 @@
 
 import json
 from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
 
 from jsonschema import ValidationError, validate
 from pydantic import ValidationError as PydanticValidationError
@@ -10,6 +11,7 @@ from casecraft.core.generation.llm_client import LLMClient, LLMError
 from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCase, TestCaseCollection, TestType
+from casecraft.models.usage import TokenUsage
 from casecraft.utils.json_cleaner import clean_json_response
 from casecraft.utils.logging import get_logger
 
@@ -17,6 +19,14 @@ from casecraft.utils.logging import get_logger
 class TestGeneratorError(Exception):
     """Test generation related errors."""
     pass
+
+
+@dataclass
+class GenerationResult:
+    """Result of test case generation including token usage."""
+    
+    test_cases: TestCaseCollection
+    token_usage: Optional[TokenUsage] = None
 
 
 class TestCaseGenerator:
@@ -35,14 +45,14 @@ class TestCaseGenerator:
         self.logger = get_logger("test_generator")
         self._test_case_schema = self._get_test_case_schema()
     
-    async def generate_test_cases(self, endpoint: APIEndpoint) -> TestCaseCollection:
+    async def generate_test_cases(self, endpoint: APIEndpoint) -> GenerationResult:
         """Generate test cases for an API endpoint.
         
         Args:
             endpoint: API endpoint to generate tests for
             
         Returns:
-            Collection of generated test cases
+            Generation result including test cases and token usage information
             
         Raises:
             TestGeneratorError: If test generation fails
@@ -68,7 +78,8 @@ class TestCaseGenerator:
                 test_case.metadata.llm_model = response.model
                 test_case.metadata.api_version = self.api_version
             
-            return TestCaseCollection(
+            # Create test case collection
+            collection = TestCaseCollection(
                 endpoint_id=endpoint.get_endpoint_id(),
                 method=endpoint.method,
                 path=endpoint.path,
@@ -76,6 +87,22 @@ class TestCaseGenerator:
                 description=endpoint.description,
                 tags=endpoint.tags,
                 test_cases=test_cases
+            )
+            
+            # Extract token usage from LLM response
+            token_usage = None
+            if response.usage:
+                token_usage = TokenUsage(
+                    prompt_tokens=response.usage.get("prompt_tokens", 0),
+                    completion_tokens=response.usage.get("completion_tokens", 0),
+                    total_tokens=response.usage.get("total_tokens", 0),
+                    model=response.model,
+                    endpoint_id=endpoint.get_endpoint_id()
+                )
+            
+            return GenerationResult(
+                test_cases=collection,
+                token_usage=token_usage
             )
             
         except Exception as e:
