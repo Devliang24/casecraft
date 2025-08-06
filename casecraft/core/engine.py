@@ -3,7 +3,7 @@
 import asyncio
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from rich.console import Console
 from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -11,10 +11,11 @@ from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn
 from casecraft.core.parsing.api_parser import APIParser, APIParseError
 from casecraft.core.generation.llm_client import create_llm_client, LLMClient, LLMError, LLMRateLimitError
 from casecraft.core.management.state_manager import StateManager, StateError
-from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError
+from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, TestGenerationResult
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.test_case import TestCaseCollection
+from casecraft.models.usage import TokenUsage, TokenStatistics, CostCalculator
 from casecraft.utils.logging import CaseCraftLogger, LoggingContext
 from casecraft.utils.exceptions import ErrorHandler, ErrorContext, convert_exception_to_casecraft_error
 from casecraft.utils.concurrency import ConcurrencyController
@@ -37,6 +38,49 @@ class GenerationResult:
         self.failed_endpoints: List[str] = []
         self.duration = 0.0
         self.api_spec: Optional[APISpecification] = None
+        
+        # Token usage statistics
+        self.token_statistics = TokenStatistics()
+        self.model_name: str = "glm-4.5-x"
+    
+    def add_token_usage(self, usage: TokenUsage, success: bool = True) -> None:
+        """Add token usage from a single LLM API call.
+        
+        Args:
+            usage: Token usage data
+            success: Whether the API call was successful
+        """
+        self.token_statistics.add_usage(usage, success)
+        
+        # Update model name from usage if available
+        if usage.model:
+            self.model_name = usage.model
+    
+    def get_token_summary(self) -> Dict[str, Any]:
+        """Get summary of token usage.
+        
+        Returns:
+            Dictionary with token usage summary
+        """
+        return {
+            "prompt_tokens": self.token_statistics.total_prompt_tokens,
+            "completion_tokens": self.token_statistics.total_completion_tokens, 
+            "total_tokens": self.token_statistics.total_tokens,
+            "total_calls": self.token_statistics.total_calls,
+            "successful_calls": self.token_statistics.successful_calls,
+            "failed_calls": self.token_statistics.failed_calls,
+            "success_rate": self.token_statistics.get_success_rate(),
+            "average_tokens_per_call": self.token_statistics.get_average_tokens_per_call(),
+            "model": self.model_name
+        }
+    
+    def has_token_usage(self) -> bool:
+        """Check if any token usage data is available.
+        
+        Returns:
+            True if token usage data is available
+        """
+        return self.token_statistics.total_calls > 0
 
 
 class GeneratorEngine:
@@ -92,7 +136,8 @@ class GeneratorEngine:
         start_time = time.time()
         result = GenerationResult()
         
-        with LoggingContext(self.logger, "test_case_generation", source=source) as op_logger:
+        logging_context = LoggingContext(self.logger, "test_case_generation", source=source)
+        with logging_context as op_logger:
             try:
                 # Parse API documentation
                 op_logger.progress(f"Loading API documentation from: {source}")
@@ -123,6 +168,8 @@ class GeneratorEngine:
                 
                 if not to_generate:
                     self.console.print("[green]✨ All endpoints are up to date![/green]")
+                    # All endpoints up to date is considered success
+                    logging_context.set_success(True)
                     return result
                 
                 # Show batch generation optimization notice
@@ -133,6 +180,8 @@ class GeneratorEngine:
                 
                 if dry_run:
                     self.console.print("[yellow]🔍 Dry run completed - no test cases generated[/yellow]")
+                    # Dry run is considered success (no actual generation expected)
+                    logging_context.set_success(True)
                     return result
                 
                 # Initialize LLM components with API version
@@ -154,6 +203,10 @@ class GeneratorEngine:
                 # Cleanup removed endpoints
                 current_endpoint_ids = {ep.get_endpoint_id() for ep in api_spec.endpoints}
                 await self.state_manager.cleanup_removed_endpoints(current_endpoint_ids)
+                
+                # Determine business success based on actual results
+                business_success = self._determine_business_success(result, to_generate, dry_run)
+                logging_context.set_success(business_success)
                 
                 return result
                 
@@ -289,7 +342,12 @@ class GeneratorEngine:
         
         try:
             # Generate test cases
-            collection = await self._test_generator.generate_test_cases(endpoint)
+            generation_result = await self._test_generator.generate_test_cases(endpoint)
+            collection = generation_result.collection
+            token_usage = generation_result.token_usage
+            
+            # Add token usage to result tracking
+            result.add_token_usage(token_usage, success=True)
             
             # Save to file
             output_file = await self._save_test_cases(collection)
@@ -404,3 +462,30 @@ class GeneratorEngine:
         """Cleanup resources."""
         if self._llm_client:
             await self._llm_client.close()
+    
+    def _determine_business_success(
+        self,
+        result: GenerationResult,
+        to_generate: List[APIEndpoint],
+        dry_run: bool
+    ) -> bool:
+        """Determine business success based on actual generation results.
+        
+        Args:
+            result: Generation result with statistics
+            to_generate: List of endpoints that were supposed to be generated
+            dry_run: Whether this was a dry run
+            
+        Returns:
+            True if the operation was successful from a business perspective
+        """
+        # For dry runs, success is determined by whether we could analyze the endpoints
+        if dry_run:
+            return True
+        
+        # If there were endpoints to generate, success means at least one was generated
+        if to_generate:
+            return result.generated_count > 0
+        
+        # If no endpoints needed generation, that's also success
+        return True

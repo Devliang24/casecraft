@@ -355,6 +355,7 @@ class LoggingContext:
         self.context = context
         self.start_time: Optional[float] = None
         self.operation_logger: Optional[CaseCraftLogger] = None
+        self.manual_success: Optional[bool] = None
     
     def __enter__(self) -> CaseCraftLogger:
         """Enter context and start logging."""
@@ -365,6 +366,16 @@ class LoggingContext:
         )
         return self.operation_logger
     
+    def set_success(self, success: bool) -> None:
+        """Manually set the success status for this operation.
+        
+        This overrides the default exception-based success determination.
+        
+        Args:
+            success: Whether the operation should be considered successful
+        """
+        self.manual_success = success
+    
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit context and log completion."""
         import time
@@ -374,7 +385,11 @@ class LoggingContext:
         else:
             duration = None
         
-        success = exc_type is None
+        # Use manual success if set, otherwise fall back to exception checking
+        if self.manual_success is not None:
+            success = self.manual_success
+        else:
+            success = exc_type is None
         
         if self.operation_logger:
             self.operation_logger.log_operation_end(
