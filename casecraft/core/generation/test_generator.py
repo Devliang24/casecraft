@@ -355,11 +355,7 @@ Return the test cases as a JSON array:"""
             )
         
         # Log test case distribution with complexity info
-        self.logger.info(
-            f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint "
-            f"({endpoint.method} {endpoint.path}): "
-            f"{positive_count} positive, {negative_count} negative, {boundary_count} boundary"
-        )
+        self.logger.info(f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary")
         
         # Validate that each test case has required fields
         for i, test_case in enumerate(test_cases):

@@ -174,13 +174,13 @@ class GeneratorEngine:
                 
                 # Show batch generation optimization notice
                 if len(to_generate) > 10:
-                    self.console.print(f"[yellow]📊 检测到大批量任务: {len(to_generate)} 个端点[/yellow]")
-                    workers_text = "单线程处理" if self.config.processing.workers == 1 else f"{self.config.processing.workers} 线程并行"
-                    self.console.print(f"[dim]   • 处理模式: {workers_text}[/dim]")
-                    self.console.print(f"[dim]   • 预计耗时: 约 {self._estimate_generation_time(len(to_generate))} 分钟[/dim]")
+                    self.console.print(f"[yellow]📊 Detected batch task: {len(to_generate)} endpoints[/yellow]")
+                    workers_text = "1" if self.config.processing.workers == 1 else str(self.config.processing.workers)
+                    self.console.print(f"[dim]   • Workers: {workers_text}[/dim]")
+                    self.console.print(f"[dim]   • Estimated time: ~{self._estimate_generation_time(len(to_generate))} minutes[/dim]")
                 
                 if dry_run:
-                    self.console.print("[yellow]🔍 预览完成 - 未实际生成测试用例[/yellow]")
+                    self.console.print("[yellow]🔍 Preview completed - no test cases generated[/yellow]")
                     # Dry run is considered success (no actual generation expected)
                     logging_context.set_success(True)
                     return result
@@ -235,10 +235,10 @@ class GeneratorEngine:
             else:
                 api_content = await self.api_parser._read_from_file(source)
             
-            self.console.print(f"\n[green]✓[/green] 成功加载 API 文档")
-            self.console.print(f"  📄 名称: [bold]{api_spec.title}[/bold]")
-            self.console.print(f"  🎯 版本: v{api_spec.version}")
-            self.console.print(f"  📊 端点: {len(api_spec.endpoints)} 个\n")
+            self.console.print(f"\n[green]✓[/green] API documentation loaded successfully")
+            self.console.print(f"  📄 Name: [bold]{api_spec.title}[/bold]")
+            self.console.print(f"  🎯 Version: v{api_spec.version}")
+            self.console.print(f"  📊 Endpoints: {len(api_spec.endpoints)}\n")
             
             return api_spec, api_content
             
@@ -253,10 +253,10 @@ class GeneratorEngine:
         dry_run: bool
     ) -> None:
         """Show generation summary."""
-        action = "将生成" if dry_run else "开始生成"
+        action = "Will generate" if dry_run else "Generating"
         
         if to_generate:
-            self.console.print(f"[yellow]📋 {action} {len(to_generate)} 个端点的测试用例:[/yellow]")
+            self.console.print(f"[yellow]📋 {action} test cases for {len(to_generate)} endpoints:[/yellow]")
             for endpoint in to_generate[:5]:  # Show first 5
                 self.console.print(f"  • {endpoint.method:6} {endpoint.path}")
             
@@ -312,7 +312,7 @@ class GeneratorEngine:
             console=self.console
         ) as progress:
             
-            task = progress.add_task("🚀 正在生成测试用例...", total=len(endpoints))
+            task = progress.add_task("🚀 Generating test cases...", total=len(endpoints))
             
             # Create tasks for concurrent processing with rate limiting
             tasks = [
@@ -369,27 +369,23 @@ class GeneratorEngine:
             
             # Show detailed progress with token usage
             if generation_result.token_usage:
-                # Format token count in a friendly way
+                # Show raw token count
                 tokens = generation_result.token_usage.total_tokens
-                if tokens >= 1000:
-                    token_display = f"{tokens/1000:.1f}K"
-                else:
-                    token_display = str(tokens)
-                token_info = f" ({token_display} tokens)"
+                token_info = f" ({tokens} tokens)"
             else:
                 token_info = ""
             
-            progress.update(task_id, advance=1, description=f"正在处理: {endpoint_id}")
+            progress.update(task_id, advance=1, description=f"Processing: {endpoint_id}")
             
             # Brief success log with friendly formatting
-            self.console.print(f"  [green]✓[/green] 生成 [bold]{len(collection.test_cases)}[/bold] 个测试用例 - {endpoint_id} [dim]{token_info}[/dim]")
+            self.console.print(f"  [green]✓[/green] Generated [bold]{len(collection.test_cases)}[/bold] test cases - {endpoint_id} [dim]{token_info}[/dim]")
             
         except (TestGeneratorError, LLMError, LLMRateLimitError) as e:
             result.failed_count += 1
             result.failed_endpoints.append(f"{endpoint_id}: {str(e)}")
             
-            self.console.print(f"  [red]✗[/red] 生成失败 - {endpoint_id}")
-            self.console.print(f"    [dim red]原因: {str(e)[:80]}...[/dim red]")
+            self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
+            self.console.print(f"    [dim red]Reason: {str(e)[:80]}...[/dim red]")
             progress.update(task_id, advance=1)
             
         except Exception as e:
