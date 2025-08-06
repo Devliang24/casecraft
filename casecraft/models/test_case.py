@@ -94,6 +94,47 @@ class TestCaseCollection(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.now)
     metadata: TestCaseMetadata = Field(default_factory=TestCaseMetadata)
     
+    def model_dump(self, **kwargs):
+        """Custom model dump to ensure test cases are properly serialized."""
+        data = super().model_dump(**kwargs)
+        
+        # Ensure each test case in the collection is properly cleaned
+        if 'test_cases' in data:
+            cleaned_test_cases = []
+            for test_case_data in data['test_cases']:
+                # Remove path_params if None or empty dict
+                if 'path_params' in test_case_data:
+                    if test_case_data['path_params'] is None or test_case_data['path_params'] == {}:
+                        del test_case_data['path_params']
+                
+                # Remove query_params if None or empty dict
+                if 'query_params' in test_case_data:
+                    if test_case_data['query_params'] is None or test_case_data['query_params'] == {}:
+                        del test_case_data['query_params']
+                
+                cleaned_test_cases.append(test_case_data)
+            
+            data['test_cases'] = cleaned_test_cases
+        
+        return data
+    
+    def model_dump_json(self, **kwargs):
+        """Custom JSON serialization to ensure proper cleaning."""
+        import json
+        # Extract JSON-specific kwargs
+        indent = kwargs.pop('indent', None)
+        exclude_none = kwargs.pop('exclude_none', True)
+        # Use our custom model_dump method
+        cleaned_data = self.model_dump(exclude_none=exclude_none)
+        # Custom encoder for datetime objects
+        from datetime import datetime
+        def json_encoder(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError(f'Object of type {type(obj)} is not JSON serializable')
+        
+        return json.dumps(cleaned_data, indent=indent, ensure_ascii=False, default=json_encoder)
+    
     class Config:
         """Pydantic configuration."""
         
