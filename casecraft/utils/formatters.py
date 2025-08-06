@@ -46,7 +46,7 @@ class JSONFormatter(OutputFormatter):
     
     def format(self, collection: TestCaseCollection) -> str:
         """Format collection as JSON."""
-        return collection.model_dump_json(indent=self.indent)
+        return collection.model_dump_json(indent=self.indent, exclude_none=True)
     
     def get_file_extension(self) -> str:
         """Get JSON file extension."""
@@ -58,7 +58,7 @@ class CompactJSONFormatter(OutputFormatter):
     
     def format(self, collection: TestCaseCollection) -> str:
         """Format collection as compact JSON."""
-        return collection.model_dump_json()
+        return collection.model_dump_json(exclude_none=True)
     
     def get_file_extension(self) -> str:
         """Get JSON file extension."""
@@ -70,7 +70,7 @@ class PrettyJSONFormatter(OutputFormatter):
     
     def format(self, collection: TestCaseCollection) -> str:
         """Format collection as pretty JSON with metadata."""
-        data = collection.model_dump()
+        data = collection.model_dump(exclude_none=True)
         
         # Add formatting metadata
         formatted_data = {

@@ -73,12 +73,7 @@ class TestCaseGenerator:
             # Enhance test cases with response schemas and smart status codes
             test_cases = self._enhance_test_cases(test_cases, endpoint)
             
-            # Update metadata with LLM model and API version
-            for test_case in test_cases:
-                test_case.metadata.llm_model = response.model
-                test_case.metadata.api_version = self.api_version
-            
-            # Create test case collection
+            # Create test case collection with metadata
             collection = TestCaseCollection(
                 endpoint_id=endpoint.get_endpoint_id(),
                 method=endpoint.method,
@@ -88,6 +83,10 @@ class TestCaseGenerator:
                 tags=endpoint.tags,
                 test_cases=test_cases
             )
+            
+            # Set metadata at collection level
+            collection.metadata.llm_model = response.model
+            collection.metadata.api_version = self.api_version
             
             # Extract token usage from LLM response
             token_usage = None
@@ -152,9 +151,11 @@ Headers设置智能规则：
    - 其他情况可以为空
 
 5. 参数生成智能规则：
-   - GET/DELETE: 如果路径包含占位符({参数})则需要path_params，可能有query_params
+   - 路径参数：如果API路径包含占位符(如{category_id})，path字段保持原样包含占位符，实际值放在path_params中
+     示例：path: "/api/v1/categories/{category_id}", path_params: {"category_id": 123}
+   - GET/DELETE: 如果路径包含占位符则需要path_params，可能有query_params
    - POST/PUT/PATCH: 通常有body，path_params仅在路径包含占位符时存在，query_params较少使用
-   - 如果参数为空，可以省略该字段（不要生成空对象{})
+   - 重要：如果没有参数，完全不要包含path_params或query_params字段，不要生成null或空对象
    - 注意：根据实际API规范生成必要的参数
 
 重要：
@@ -162,6 +163,10 @@ Headers设置智能规则：
 - 确保JSON格式正确，不要包含注释
 - 字符串使用双引号，避免特殊字符
 - Headers必须基于上述规则智能生成，不要随意设置
+- 参数字段规则：
+  * 有路径参数时才包含path_params字段（不要设为null）
+  * 有查询参数时才包含query_params字段（不要设为null）
+  * 没有参数时完全省略这些字段
 - 每个测试用例必须包含完整的预期验证信息：
   * expected_response_headers: 响应头验证（如Content-Type、Location等）
   * expected_response_content: 响应内容断言（字段存在性、值类型等）
@@ -293,6 +298,14 @@ Return the test cases as a JSON array:"""
                 # Validate against schema
                 validate(test_case_data, self._test_case_schema)
                 
+                # Clean up null/empty parameters before creating TestCase
+                if 'path_params' in test_case_data:
+                    if test_case_data['path_params'] is None or test_case_data['path_params'] == {}:
+                        del test_case_data['path_params']
+                if 'query_params' in test_case_data:
+                    if test_case_data['query_params'] is None or test_case_data['query_params'] == {}:
+                        del test_case_data['query_params']
+                
                 # Convert to TestCase object
                 test_case = TestCase(**test_case_data)
                 test_cases.append(test_case)
@@ -407,14 +420,6 @@ Return the test cases as a JSON array:"""
                 "headers": {
                     "type": "object",
                     "description": "Request headers"
-                },
-                "path_params": {
-                    "type": "object", 
-                    "description": "Path parameters (optional, only if path contains placeholders)"
-                },
-                "query_params": {
-                    "type": "object",
-                    "description": "Query parameters (optional)"
                 },
                 "body": {
                     "oneOf": [

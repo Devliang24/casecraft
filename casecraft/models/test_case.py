@@ -32,8 +32,8 @@ class TestCase(BaseModel):
     method: str = Field(..., description="HTTP method (GET/POST/PUT/DELETE/etc)")
     path: str = Field(..., description="API path (e.g. '/users/{id}')")
     headers: Dict[str, Any] = Field(default_factory=dict, description="Request headers")
-    path_params: Dict[str, Any] = Field(default_factory=dict, description="Path parameters")
-    query_params: Dict[str, Any] = Field(default_factory=dict, description="Query parameters")
+    path_params: Optional[Dict[str, Any]] = Field(None, description="Path parameters")
+    query_params: Optional[Dict[str, Any]] = Field(None, description="Query parameters")
     body: Optional[Dict[str, Any]] = Field(None, description="Request body data")
     expected_status: int = Field(..., description="Expected HTTP status code")
     expected_response_schema: Optional[Dict[str, Any]] = Field(
@@ -50,7 +50,6 @@ class TestCase(BaseModel):
     )
     test_type: TestType = Field(..., description="Test type: positive/negative/boundary")
     tags: List[str] = Field(default_factory=list, description="Test tag list")
-    metadata: TestCaseMetadata = Field(default_factory=TestCaseMetadata)
 
     class Config:
         """Pydantic configuration."""
@@ -72,6 +71,7 @@ class TestCaseCollection(BaseModel):
     tags: List[str] = Field(default_factory=list)
     test_cases: List[TestCase] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.now)
+    metadata: TestCaseMetadata = Field(default_factory=TestCaseMetadata)
     
     class Config:
         """Pydantic configuration."""
