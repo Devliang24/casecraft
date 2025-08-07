@@ -176,6 +176,13 @@ class ConfigManager:
         Raises:
             ConfigError: If configuration is invalid or incomplete
         """
+        # Check for required model configuration
+        if not config.llm.model:
+            raise ConfigError(
+                "Model not configured. Please set CASECRAFT_LLM_MODEL environment variable "
+                "or add it to your .env file. Example: CASECRAFT_LLM_MODEL=glm-4.5"
+            )
+        
         # Check for required API key
         if not config.llm.api_key:
             raise ConfigError(

@@ -69,12 +69,11 @@ def _interactive_setup() -> dict:
     if api_key:
         env_vars["CASECRAFT_LLM_API_KEY"] = api_key
     
-    # Model configuration (with defaults)
+    # Model configuration (required)
     console.print("\n[bold]Model Configuration[/bold]")
     
-    model = Prompt.ask("Model name", default="glm-4.5-x")
-    if model != "glm-4.5-x":
-        env_vars["CASECRAFT_LLM_MODEL"] = model
+    model = Prompt.ask("Model name (e.g., glm-4.5, glm-4.5-x, glm-4.5-air)")
+    env_vars["CASECRAFT_LLM_MODEL"] = model
     
     base_url = Prompt.ask("Base URL", default="https://open.bigmodel.cn/api/paas/v4")
     if base_url != "https://open.bigmodel.cn/api/paas/v4":
@@ -82,12 +81,12 @@ def _interactive_setup() -> dict:
     
     # Advanced settings (optional)
     if Confirm.ask("Configure advanced settings?", default=False):
-        timeout = Prompt.ask("Request timeout (seconds)", default="60")
-        if timeout != "60":
+        timeout = Prompt.ask("Request timeout (seconds)", default="120")
+        if timeout != "120":
             env_vars["CASECRAFT_LLM_TIMEOUT"] = timeout
             
-        max_retries = Prompt.ask("Max retries", default="3")
-        if max_retries != "3":
+        max_retries = Prompt.ask("Max retries", default="5")
+        if max_retries != "5":
             env_vars["CASECRAFT_LLM_MAX_RETRIES"] = max_retries
             
         temperature = Prompt.ask("Temperature", default="0.7")

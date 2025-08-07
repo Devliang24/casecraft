@@ -170,7 +170,10 @@ class CostCalculator:
         Returns:
             Cost in USD
         """
-        model_name = model or usage.model or "glm-4.5-x"
+        model_name = model or usage.model
+        if not model_name:
+            # No model specified, cannot calculate cost
+            return Decimal(0)
         
         # Normalize model name
         if "glm-4.5" in model_name.lower():
@@ -179,12 +182,12 @@ class CostCalculator:
             else:
                 pricing_key = "glm-4.5-x"
         else:
-            # Default to glm-4.5-x pricing
-            pricing_key = "glm-4.5-x"
+            # Unknown model format, cannot determine pricing
+            return Decimal(0)
         
         if pricing_key not in cls.PRICING:
-            # Unknown model, use default pricing
-            pricing_key = "glm-4.5-x"
+            # Unknown model, cannot determine pricing
+            return Decimal(0)
         
         pricing = cls.PRICING[pricing_key]
         
@@ -195,7 +198,7 @@ class CostCalculator:
         return input_cost + output_cost
     
     @classmethod
-    def calculate_total_cost(cls, statistics: TokenStatistics, model: str = "glm-4.5-x") -> Decimal:
+    def calculate_total_cost(cls, statistics: TokenStatistics, model: Optional[str] = None) -> Decimal:
         """Calculate total cost from aggregated statistics.
         
         Args:
@@ -231,7 +234,7 @@ class CostCalculator:
             return f"${cost:.4f} USD"
     
     @classmethod
-    def get_model_pricing_info(cls, model: str = "glm-4.5-x") -> Dict[str, str]:
+    def get_model_pricing_info(cls, model: Optional[str] = None) -> Dict[str, str]:
         """Get pricing information for a model.
         
         Args:
@@ -240,6 +243,13 @@ class CostCalculator:
         Returns:
             Dict with input/output pricing info
         """
+        if not model:
+            return {
+                "input": "N/A",
+                "output": "N/A",
+                "note": "Model not specified"
+            }
+        
         # Normalize model name
         if "glm-4.5" in model.lower():
             if "air" in model.lower():
@@ -247,10 +257,18 @@ class CostCalculator:
             else:
                 pricing_key = "glm-4.5-x"
         else:
-            pricing_key = "glm-4.5-x"
+            return {
+                "input": "N/A",
+                "output": "N/A", 
+                "note": f"Unknown model: {model}"
+            }
         
         if pricing_key not in cls.PRICING:
-            pricing_key = "glm-4.5-x"
+            return {
+                "input": "N/A",
+                "output": "N/A",
+                "note": f"No pricing data for: {model}"
+            }
         
         pricing = cls.PRICING[pricing_key]
         

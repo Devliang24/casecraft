@@ -9,11 +9,11 @@ from pydantic import BaseModel, Field, validator
 class LLMConfig(BaseModel):
     """BigModel LLM configuration."""
     
-    model: str = Field(default="glm-4.5-x", description="BigModel model name")
+    model: Optional[str] = Field(None, description="BigModel model name (must be configured via CASECRAFT_LLM_MODEL)")
     api_key: Optional[str] = Field(None, description="API key for BigModel service")
     base_url: Optional[str] = Field(default="https://open.bigmodel.cn/api/paas/v4", description="BigModel API base URL")
-    timeout: int = Field(default=60, description="Request timeout in seconds")
-    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    timeout: int = Field(default=120, description="Request timeout in seconds")
+    max_retries: int = Field(default=5, description="Maximum retry attempts")
     temperature: float = Field(default=0.7, description="Temperature for generation")
     think: bool = Field(default=False, description="Enable thinking process output (useful for debugging)")
     stream: bool = Field(default=False, description="Enable streaming response (improves user experience)")
