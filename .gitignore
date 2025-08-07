@@ -72,6 +72,7 @@ test_cases/
 *.log
 *.tmp
 *.bak
+CLAUDE.md
 
 # User configuration (contains API keys)
 ~/.casecraft/
