@@ -11,40 +11,36 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 
 from casecraft.core.management.config_manager import ConfigManager, ConfigError
-from casecraft.models.config import CaseCraftConfig, LLMConfig
 
 
 console = Console()
 
 
 def init_command() -> None:
-    """Initialize CaseCraft configuration."""
+    """Initialize CaseCraft configuration via .env file setup."""
     console.print(Panel.fit(
         "[bold blue]CaseCraft Configuration Setup[/bold blue]",
-        subtitle="Setting up your API testing environment"
+        subtitle="Setting up your API testing environment with .env file"
     ))
     
-    config_manager = ConfigManager()
-    
-    # Check if config already exists
-    if config_manager.config_exists():
-        console.print(f"[yellow]Configuration file already exists at: {config_manager.config_path}[/yellow]")
+    # Check if .env file already exists
+    env_file = Path(".env")
+    if env_file.exists():
+        console.print(f"[yellow].env file already exists in current directory[/yellow]")
         
-        if not Confirm.ask("Do you want to overwrite the existing configuration?"):
-            console.print("[green]Keeping existing configuration. Setup cancelled.[/green]")
+        if not Confirm.ask("Do you want to overwrite the existing .env file?"):
+            console.print("[green]Keeping existing .env file. Setup cancelled.[/green]")
             return
     
     try:
-        # Create default config
-        config = config_manager.create_default_config()
+        # Interactive setup to create .env file
+        env_vars = _interactive_setup()
         
-        # Interactive setup
-        config = _interactive_setup(config)
+        # Write .env file
+        _write_env_file(env_file, env_vars)
         
-        # Save configuration
-        config_manager.save_config(config)
-        
-        console.print(f"\n[green]✓[/green] Configuration saved to: [bold]{config_manager.config_path}[/bold]")
+        console.print(f"\n[green]✓[/green] Configuration saved to: [bold].env[/bold]")
+        console.print("[dim]Remember to add .env to your .gitignore file![/dim]")
         
         # Show next steps
         _show_next_steps()
@@ -57,88 +53,100 @@ def init_command() -> None:
         raise click.Abort()
 
 
-def _interactive_setup(config: CaseCraftConfig) -> CaseCraftConfig:
+def _interactive_setup() -> dict:
     """Interactive configuration setup.
     
-    Args:
-        config: Base configuration to modify
-        
     Returns:
-        Updated configuration
+        Dictionary of environment variables to write
     """
     console.print("\n[bold]BigModel LLM Configuration[/bold]")
     console.print("CaseCraft 使用 BigModel (GLM-4.5-X) 作为 LLM 服务")
-    console.print(f"模型: [cyan]glm-4.5-x[/cyan]")
-    console.print(f"API 地址: [cyan]https://open.bigmodel.cn/api/paas/v4[/cyan]")
+    
+    env_vars = {}
     
     # API Key
-    api_key = _prompt_api_key("bigmodel")
+    api_key = _prompt_api_key()
+    if api_key:
+        env_vars["CASECRAFT_LLM_API_KEY"] = api_key
     
-    # BigModel only supports single concurrency
-    console.print("[yellow]注意: BigModel 仅支持单并发，workers 设置为 1[/yellow]")
+    # Model configuration (with defaults)
+    console.print("\n[bold]Model Configuration[/bold]")
     
-    # Update LLM config
-    config.llm = LLMConfig(
-        model="glm-4.5-x",
-        api_key=api_key,
-        base_url="https://open.bigmodel.cn/api/paas/v4",
-    )
+    model = Prompt.ask("Model name", default="glm-4.5-x")
+    if model != "glm-4.5-x":
+        env_vars["CASECRAFT_LLM_MODEL"] = model
+    
+    base_url = Prompt.ask("Base URL", default="https://open.bigmodel.cn/api/paas/v4")
+    if base_url != "https://open.bigmodel.cn/api/paas/v4":
+        env_vars["CASECRAFT_LLM_BASE_URL"] = base_url
+    
+    # Advanced settings (optional)
+    if Confirm.ask("Configure advanced settings?", default=False):
+        timeout = Prompt.ask("Request timeout (seconds)", default="60")
+        if timeout != "60":
+            env_vars["CASECRAFT_LLM_TIMEOUT"] = timeout
+            
+        max_retries = Prompt.ask("Max retries", default="3")
+        if max_retries != "3":
+            env_vars["CASECRAFT_LLM_MAX_RETRIES"] = max_retries
+            
+        temperature = Prompt.ask("Temperature", default="0.7")
+        if temperature != "0.7":
+            env_vars["CASECRAFT_LLM_TEMPERATURE"] = temperature
+        
+        think = Confirm.ask("Enable thinking process output?", default=False)
+        if think:
+            env_vars["CASECRAFT_LLM_THINK"] = "true"
+            
+        stream = Confirm.ask("Enable streaming response?", default=False)
+        if stream:
+            env_vars["CASECRAFT_LLM_STREAM"] = "true"
     
     # Output configuration
     console.print("\n[bold]Output Configuration[/bold]")
     
-    output_dir = Prompt.ask(
-        "Output directory for test cases",
-        default=config.output.directory
-    )
-    config.output.directory = output_dir
+    output_dir = Prompt.ask("Output directory for test cases", default="test_cases")
+    if output_dir != "test_cases":
+        env_vars["CASECRAFT_OUTPUT_DIRECTORY"] = output_dir
     
-    organize_by_tag = Confirm.ask(
-        "Organize output files by API tags?",
-        default=config.output.organize_by_tag
-    )
-    config.output.organize_by_tag = organize_by_tag
+    organize_by_tag = Confirm.ask("Organize output files by API tags?", default=False)
+    if organize_by_tag:
+        env_vars["CASECRAFT_OUTPUT_ORGANIZE_BY_TAG"] = "true"
     
     # Processing configuration
     console.print("\n[bold]Processing Configuration[/bold]")
+    console.print("[yellow]Note: BigModel only supports single concurrency, workers set to 1[/yellow]")
+    env_vars["CASECRAFT_PROCESSING_WORKERS"] = "1"
     
-    # BigModel only supports single worker
-    config.processing.workers = 1
-    console.print("Workers: [cyan]1[/cyan] (BigModel 单并发限制)")
-    
-    return config
+    return env_vars
 
 
-def _prompt_api_key(provider: str) -> Optional[str]:
-    """Prompt for API key with provider-specific guidance.
+def _prompt_api_key() -> Optional[str]:
+    """Prompt for API key with guidance.
     
-    Args:
-        provider: LLM provider name
-        
     Returns:
         API key or None if skipped
     """
-    # Check environment variable first
-    env_var = "BIGMODEL_API_KEY"
-    existing_key = os.getenv(env_var)
+    # Check existing environment variables first
+    existing_key = os.getenv("CASECRAFT_LLM_API_KEY") or os.getenv("BIGMODEL_API_KEY")
     
     if existing_key:
-        console.print(f"[green]✓[/green] Found API key in environment variable {env_var}")
+        console.print(f"[green]✓[/green] Found API key in environment variables")
         if Confirm.ask("Use existing API key from environment?", default=True):
             return existing_key
     
     # Provide guidance for obtaining API key
-    console.print(f"[dim]获取API密钥: https://open.bigmodel.cn/console/apikey[/dim]")
+    console.print(f"[dim]Get API key from: https://open.bigmodel.cn/console/apikey[/dim]")
     
     # Prompt for API key
     api_key = Prompt.ask(
-        "输入你的 BIGMODEL API 密钥",
+        "Enter your BigModel API key",
         password=True,
         default=""
     )
     
     if not api_key:
-        console.print(f"[yellow]No API key provided. You can set it later in the config file or via {env_var}[/yellow]")
+        console.print("[yellow]No API key provided. You can add it to .env file later.[/yellow]")
         return None
     
     # Basic validation
@@ -146,6 +154,37 @@ def _prompt_api_key(provider: str) -> Optional[str]:
         console.print("[yellow]Warning: API key seems too short. Please verify it's correct.[/yellow]")
     
     return api_key
+
+
+def _write_env_file(env_file: Path, env_vars: dict) -> None:
+    """Write environment variables to .env file.
+    
+    Args:
+        env_file: Path to .env file
+        env_vars: Dictionary of environment variables
+    """
+    with open(env_file, 'w', encoding='utf-8') as f:
+        f.write("# CaseCraft Configuration\n")
+        f.write("# Generated by 'casecraft init'\n")
+        f.write("# Add this file to .gitignore to keep your API key secure\n\n")
+        
+        f.write("# BigModel LLM Configuration\n")
+        for key, value in env_vars.items():
+            if key.startswith("CASECRAFT_LLM_"):
+                f.write(f"{key}={value}\n")
+        
+        f.write("\n# Output Configuration\n")
+        for key, value in env_vars.items():
+            if key.startswith("CASECRAFT_OUTPUT_"):
+                f.write(f"{key}={value}\n")
+        
+        f.write("\n# Processing Configuration\n")
+        for key, value in env_vars.items():
+            if key.startswith("CASECRAFT_PROCESSING_"):
+                f.write(f"{key}={value}\n")
+        
+        f.write("\n# Optional: Alternative API key variable\n")
+        f.write("# BIGMODEL_API_KEY=your-api-key-here\n")
 
 
 def _show_next_steps() -> None:
@@ -160,7 +199,9 @@ def _show_next_steps() -> None:
         "  [cyan]casecraft generate ./openapi.yaml[/cyan]",
         "",
         "Use [cyan]--dry-run[/cyan] to preview without making LLM calls:",
-        "  [cyan]casecraft generate ./api.json --dry-run[/cyan]"
+        "  [cyan]casecraft generate ./api.json --dry-run[/cyan]",
+        "",
+        "Environment variables in .env file will be loaded automatically."
     ]
     
     console.print(Panel(

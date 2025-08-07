@@ -190,11 +190,11 @@ def _show_config_help() -> None:
     help_text = """
 Configuration is missing or invalid. To fix this:
 
-1. Run [cyan]casecraft init[/cyan] to set up configuration
+1. Run [cyan]casecraft init[/cyan] to create .env file
 2. Set API key via environment variable:
    [cyan]export CASECRAFT_LLM_API_KEY=your-api-key[/cyan]
-3. Or edit the config file directly:
-   [cyan]~/.casecraft/config.yaml[/cyan]
+3. Or create .env file manually:
+   [cyan]CASECRAFT_LLM_API_KEY=your-api-key[/cyan]
 """
     
     console.print(Panel(

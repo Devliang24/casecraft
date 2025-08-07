@@ -70,12 +70,3 @@ class CaseCraftConfig(BaseModel):
             return ProcessingConfig(**v)
         return v
 
-    @classmethod
-    def get_config_path(cls) -> Path:
-        """Get the default configuration file path."""
-        return Path.home() / ".casecraft" / "config.yaml"
-    
-    @classmethod
-    def get_config_dir(cls) -> Path:
-        """Get the configuration directory path."""
-        return Path.home() / ".casecraft"
