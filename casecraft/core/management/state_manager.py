@@ -194,7 +194,9 @@ class StateManager:
         self,
         endpoint: APIEndpoint,
         test_cases_count: int,
-        output_file: Optional[str] = None
+        output_file: Optional[str] = None,
+        provider_used: Optional[str] = None,
+        tokens_used: Optional[int] = None
     ) -> None:
         """Mark endpoint as generated with current state.
         
@@ -202,6 +204,8 @@ class StateManager:
             endpoint: Generated endpoint
             test_cases_count: Number of test cases generated
             output_file: Path to output file
+            provider_used: Provider used for generation
+            tokens_used: Number of tokens used
         """
         state = await self.load_state()
         endpoint_id = endpoint.get_endpoint_id()
@@ -211,10 +215,31 @@ class StateManager:
             definition_hash=endpoint_hash,
             last_generated=datetime.now(),
             test_cases_count=test_cases_count,
-            output_file=output_file
+            output_file=output_file,
+            provider_used=provider_used,
+            tokens_used=tokens_used
         )
         
         state.update_endpoint_state(endpoint_id, endpoint_state)
+        
+        # Update provider statistics
+        if provider_used:
+            # Update usage count
+            if provider_used not in state.statistics.provider_usage:
+                state.statistics.provider_usage[provider_used] = 0
+            state.statistics.provider_usage[provider_used] += 1
+            
+            # Update token statistics
+            if tokens_used and tokens_used > 0:
+                if provider_used not in state.statistics.provider_avg_tokens:
+                    state.statistics.provider_avg_tokens[provider_used] = float(tokens_used)
+                else:
+                    # Calculate running average
+                    count = state.statistics.provider_usage[provider_used]
+                    current_avg = state.statistics.provider_avg_tokens[provider_used]
+                    new_avg = ((current_avg * (count - 1)) + tokens_used) / count
+                    state.statistics.provider_avg_tokens[provider_used] = new_avg
+        
         await self.save_state(state)
     
     async def update_statistics(
@@ -223,7 +248,8 @@ class StateManager:
         generated_count: int,
         skipped_count: int,
         failed_count: int = 0,
-        duration: Optional[float] = None
+        duration: Optional[float] = None,
+        provider_results: Optional[Dict[str, Dict[str, int]]] = None
     ) -> None:
         """Update processing statistics.
         
@@ -233,16 +259,34 @@ class StateManager:
             skipped_count: Number of endpoints skipped
             failed_count: Number of endpoints that failed
             duration: Processing duration in seconds
+            provider_results: Dict of provider -> {"success": n, "failed": m} counts
         """
         state = await self.load_state()
+        
+        # Keep existing provider statistics if not being updated
+        existing_provider_usage = state.statistics.provider_usage
+        existing_provider_avg_tokens = state.statistics.provider_avg_tokens
         
         state.statistics = ProcessingStatistics(
             total_endpoints=total_endpoints,
             generated_count=generated_count,
             skipped_count=skipped_count,
             failed_count=failed_count,
-            last_run_duration=duration
+            last_run_duration=duration,
+            provider_usage=existing_provider_usage,
+            provider_avg_tokens=existing_provider_avg_tokens
         )
+        
+        # Calculate provider success rates
+        if provider_results:
+            for provider, results in provider_results.items():
+                success = results.get("success", 0)
+                failed = results.get("failed", 0)
+                total = success + failed
+                
+                if total > 0:
+                    success_rate = success / total
+                    state.statistics.provider_success_rate[provider] = success_rate
         
         await self.save_state(state)
     
@@ -254,7 +298,7 @@ class StateManager:
         """
         state = await self.load_state()
         
-        return {
+        summary = {
             "version": state.version,
             "last_run": state.statistics.last_run_duration,
             "total_endpoints": state.statistics.total_endpoints,
@@ -264,6 +308,50 @@ class StateManager:
             "endpoints": len(state.endpoints),
             "api_source": state.config.api_source if state.config else None,
             "last_modified": state.config.last_modified if state.config else None
+        }
+        
+        # Add provider statistics if available
+        if state.statistics.provider_usage:
+            summary["provider_usage"] = state.statistics.provider_usage
+        if state.statistics.provider_success_rate:
+            summary["provider_success_rate"] = {
+                provider: f"{rate:.1%}" 
+                for provider, rate in state.statistics.provider_success_rate.items()
+            }
+        if state.statistics.provider_avg_tokens:
+            summary["provider_avg_tokens"] = {
+                provider: round(tokens, 0)
+                for provider, tokens in state.statistics.provider_avg_tokens.items()
+            }
+        
+        return summary
+    
+    async def get_provider_statistics(self) -> Dict[str, any]:
+        """Get detailed provider usage statistics.
+        
+        Returns:
+            Dictionary with provider statistics
+        """
+        state = await self.load_state()
+        
+        # Collect per-provider endpoint information
+        provider_endpoints = {}
+        for endpoint_id, endpoint_state in state.endpoints.items():
+            if endpoint_state.provider_used:
+                if endpoint_state.provider_used not in provider_endpoints:
+                    provider_endpoints[endpoint_state.provider_used] = []
+                provider_endpoints[endpoint_state.provider_used].append({
+                    "endpoint": endpoint_id,
+                    "generated": endpoint_state.last_generated,
+                    "test_cases": endpoint_state.test_cases_count,
+                    "tokens": endpoint_state.tokens_used
+                })
+        
+        return {
+            "usage_count": state.statistics.provider_usage,
+            "success_rate": state.statistics.provider_success_rate,
+            "avg_tokens": state.statistics.provider_avg_tokens,
+            "endpoints_by_provider": provider_endpoints
         }
     
     async def cleanup_removed_endpoints(self, current_endpoint_ids: Set[str]) -> None:

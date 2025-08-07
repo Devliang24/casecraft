@@ -11,6 +11,8 @@ from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.provider_config import MultiProviderConfig
 from casecraft.core.providers.strategies.base import ProviderStrategy
 from casecraft.core.providers.strategies.round_robin import RoundRobinStrategy
+from casecraft.core.providers.strategies.random_strategy import RandomStrategy
+from casecraft.core.providers.strategies.complexity_strategy import ComplexityBasedStrategy
 from casecraft.core.providers.fallback import FallbackHandler
 
 
@@ -52,14 +54,21 @@ class MultiProviderEngine:
             Provider strategy instance
         """
         strategy_name = self.config.strategy.lower()
+        active_providers = self.config.get_active_providers()
         
         if strategy_name == "round_robin":
-            return RoundRobinStrategy(self.config.get_active_providers())
-        # Add more strategies here as they are implemented
+            return RoundRobinStrategy(active_providers)
+        elif strategy_name == "random":
+            return RandomStrategy(active_providers)
+        elif strategy_name == "complexity_based":
+            return ComplexityBasedStrategy(active_providers)
+        elif strategy_name == "manual":
+            # Manual strategy doesn't need a strategy object
+            return None
         else:
             # Default to round robin
             self.logger.warning(f"Unknown strategy {strategy_name}, using round_robin")
-            return RoundRobinStrategy(self.config.get_active_providers())
+            return RoundRobinStrategy(active_providers)
     
     def _initialize_providers(self) -> None:
         """Initialize all configured providers."""
