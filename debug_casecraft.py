@@ -239,7 +239,7 @@ async def test_case_generation(debug: DebugHelper, api_data: Dict, llm_client: L
             # 安全获取test_type值
             test_type = test_case.test_type.value if hasattr(test_case.test_type, 'value') else str(test_case.test_type)
             print(f"{i+1}. {test_case.name} ({test_type})")
-            print(f"   期望状态: {test_case.expected_status}")
+            print(f"   期望状态: {test_case.status}")
             print(f"   描述: {test_case.description[:100]}...")
             if test_case.tags:
                 print(f"   标签: {', '.join(test_case.tags[:5])}")
@@ -368,7 +368,7 @@ async def debug_specific_endpoint(debug: DebugHelper, endpoint_path: str = "/api
             # 安全获取test_type值
             test_type = test_case.test_type.value if hasattr(test_case.test_type, 'value') else str(test_case.test_type)
             print(f"类型: {test_type}")
-            print(f"状态码: {test_case.expected_status}")
+            print(f"状态码: {test_case.status}")
             print(f"描述: {test_case.description}")
             if test_case.body:
                 print(f"请求体: {json.dumps(test_case.body, indent=2, ensure_ascii=False)}")

@@ -35,17 +35,17 @@ class TestCase(BaseModel):
     path_params: Optional[Dict[str, Any]] = Field(None, description="Path parameters")
     query_params: Optional[Dict[str, Any]] = Field(None, description="Query parameters")
     body: Optional[Dict[str, Any]] = Field(None, description="Request body data")
-    expected_status: int = Field(..., description="Expected HTTP status code")
-    expected_response_schema: Optional[Dict[str, Any]] = Field(
+    status: int = Field(..., description="Expected HTTP status code")
+    resp_schema: Optional[Dict[str, Any]] = Field(
         None, description="Expected response structure JSON Schema"
     )
-    expected_response_headers: Dict[str, Any] = Field(
+    resp_headers: Dict[str, Any] = Field(
         default_factory=dict, description="Expected response headers"
     )
-    expected_response_content: Optional[Dict[str, Any]] = Field(
+    resp_content: Optional[Dict[str, Any]] = Field(
         None, description="Expected response content assertions"
     )
-    business_rules: List[str] = Field(
+    rules: List[str] = Field(
         default_factory=list, description="Business logic validation rules"
     )
     test_type: TestType = Field(..., description="Test type: positive/negative/boundary")
@@ -91,7 +91,6 @@ class TestCaseCollection(BaseModel):
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     test_cases: List[TestCase] = Field(default_factory=list)
-    generated_at: datetime = Field(default_factory=datetime.now)
     metadata: TestCaseMetadata = Field(default_factory=TestCaseMetadata)
     
     def model_dump(self, **kwargs):

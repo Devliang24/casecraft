@@ -189,9 +189,9 @@ Headers设置智能规则：
   * 有查询参数时才包含query_params字段（不要设为null）
   * 没有参数时完全省略这些字段
 - 每个测试用例必须包含完整的预期验证信息：
-  * expected_response_headers: 响应头验证（如Content-Type、Location等）
-  * expected_response_content: 响应内容断言（字段存在性、值类型等）
-  * business_rules: 业务逻辑验证规则列表
+  * resp_headers: 响应头验证
+  * resp_content: 响应内容断言
+  * rules: 业务逻辑验证规则
   * tags: 基于上述规则生成的有意义标签数组（绝不为空）"""
     
     def _build_prompt(self, endpoint: APIEndpoint) -> str:
@@ -399,7 +399,7 @@ Return the test cases as a JSON array:"""
             if not test_case.name or not test_case.description:
                 raise TestGeneratorError(f"Test case {i} missing name or description")
             
-            if not test_case.expected_status:
+            if not test_case.status:
                 raise TestGeneratorError(f"Test case {i} missing expected status code")
     
     def _get_test_case_schema(self) -> Dict[str, Any]:
@@ -412,7 +412,7 @@ Return the test cases as a JSON array:"""
                 "description", 
                 "method",
                 "path",
-                "expected_status",
+                "status",
                 "test_type"
             ],
             "properties": {
@@ -452,13 +452,13 @@ Return the test cases as a JSON array:"""
                     ],
                     "description": "Request body"
                 },
-                "expected_status": {
+                "status": {
                     "type": "integer",
                     "minimum": 100,
                     "maximum": 599,
                     "description": "Expected HTTP status code"
                 },
-                "expected_response_schema": {
+                "resp_schema": {
                     "type": "object",
                     "description": "Expected response schema"
                 },
@@ -472,15 +472,15 @@ Return the test cases as a JSON array:"""
                     "items": {"type": "string"},
                     "description": "Test tags"
                 },
-                "expected_response_headers": {
+                "resp_headers": {
                     "type": "object",
                     "description": "Expected response headers"
                 },
-                "expected_response_content": {
+                "resp_content": {
                     "type": "object",
                     "description": "Expected response content assertions"
                 },
-                "business_rules": {
+                "rules": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Business logic validation rules"
@@ -507,31 +507,31 @@ Return the test cases as a JSON array:"""
             if not hasattr(test_case, 'test_id') or test_case.test_id is None:
                 test_case.test_id = i
             
-            status_str = str(test_case.expected_status)
+            status_str = str(test_case.status)
             
             # Add response schema for all cases with defined schemas
             if status_str in response_schemas:
-                test_case.expected_response_schema = response_schemas[status_str]
+                test_case.resp_schema = response_schemas[status_str]
             else:
                 # Provide default schema based on status code
-                test_case.expected_response_schema = self._get_default_response_schema(status_str)
+                test_case.resp_schema = self._get_default_response_schema(status_str)
             
             # Add expected response headers
-            test_case.expected_response_headers = self._extract_response_headers(endpoint, status_str)
+            test_case.resp_headers = self._extract_response_headers(endpoint, status_str)
             
             # Add response content assertions
             content_assertions = self._extract_response_content_assertions(endpoint, status_str)
             if content_assertions:
-                test_case.expected_response_content = content_assertions
+                test_case.resp_content = content_assertions
             
             # Add business rules based on endpoint characteristics
             business_rules = self._generate_business_rules(test_case, endpoint)
             if business_rules:
-                test_case.business_rules = business_rules
+                test_case.rules = business_rules
             
             # Improve status codes based on test type and error
             if test_case.test_type == TestType.NEGATIVE:
-                test_case.expected_status = self._infer_status_code(test_case, endpoint)
+                test_case.status = self._infer_status_code(test_case, endpoint)
             
             # Ensure test case has meaningful tags
             test_case.tags = self._generate_test_case_tags(test_case, endpoint)
@@ -554,7 +554,18 @@ Return the test cases as a JSON array:"""
                 # Try to find JSON schema
                 for content_type, content_def in response_def["content"].items():
                     if "json" in content_type.lower() and "schema" in content_def:
-                        schemas[status] = content_def["schema"]
+                        schema = content_def["schema"].copy()
+                        # Simplify or remove long titles to save tokens
+                        if "title" in schema and len(schema["title"]) > 20:
+                            # Create a simple title based on status code
+                            status_int = int(status) if status.isdigit() else 200
+                            if 200 <= status_int < 300:
+                                schema["title"] = "Success Response"
+                            elif 400 <= status_int < 500:
+                                schema["title"] = "Error Response"
+                            else:
+                                schema["title"] = f"Response {status}"
+                        schemas[status] = schema
                         break
         
         return schemas
@@ -745,7 +756,7 @@ Return the test cases as a JSON array:"""
             return 404
         
         # Default to current status or 400
-        return test_case.expected_status if test_case.expected_status in [400, 404, 422] else 400
+        return test_case.status if test_case.status in [400, 404, 422] else 400
     
     def _evaluate_endpoint_complexity(self, endpoint: APIEndpoint) -> Dict[str, Any]:
         """Evaluate the complexity of an API endpoint.
