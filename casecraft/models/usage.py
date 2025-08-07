@@ -1,6 +1,6 @@
 """Token usage and cost calculation models."""
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -14,6 +14,7 @@ class TokenUsage:
     total_tokens: int = 0
     model: str = ""
     endpoint_id: str = ""
+    retry_count: int = 0  # Number of retries for this specific call
     
     def __post_init__(self):
         """Validate and normalize token counts."""
@@ -37,6 +38,17 @@ class TokenStatistics:
     successful_calls: int = 0
     failed_calls: int = 0
     
+    # Retry statistics
+    total_retries: int = 0
+    retry_attempts_by_endpoint: Dict[str, int] = None
+    max_retries_for_single_endpoint: int = 0
+    endpoints_with_retries: int = 0
+    
+    def __post_init__(self):
+        """Initialize nested data structures."""
+        if self.retry_attempts_by_endpoint is None:
+            self.retry_attempts_by_endpoint = {}
+    
     def add_usage(self, usage: TokenUsage, success: bool = True) -> None:
         """Add token usage from a single API call.
         
@@ -53,6 +65,25 @@ class TokenStatistics:
             self.successful_calls += 1
         else:
             self.failed_calls += 1
+        
+        # Record retry statistics
+        if usage.retry_count > 0:
+            self.total_retries += usage.retry_count
+            endpoint_id = usage.endpoint_id or "unknown"
+            
+            # Track retries by endpoint
+            if endpoint_id not in self.retry_attempts_by_endpoint:
+                self.retry_attempts_by_endpoint[endpoint_id] = 0
+                self.endpoints_with_retries += 1
+            
+            self.retry_attempts_by_endpoint[endpoint_id] += usage.retry_count
+            
+            # Update max retries for single endpoint
+            endpoint_total_retries = self.retry_attempts_by_endpoint[endpoint_id]
+            self.max_retries_for_single_endpoint = max(
+                self.max_retries_for_single_endpoint, 
+                endpoint_total_retries
+            )
     
     def get_average_tokens_per_call(self) -> float:
         """Get average total tokens per successful call."""
@@ -65,6 +96,47 @@ class TokenStatistics:
         if self.total_calls == 0:
             return 0.0
         return self.successful_calls / self.total_calls
+    
+    def get_average_retries_per_endpoint(self) -> float:
+        """Get average number of retries per endpoint that had retries."""
+        if self.endpoints_with_retries == 0:
+            return 0.0
+        return self.total_retries / self.endpoints_with_retries
+    
+    def get_retry_summary(self) -> Dict[str, Any]:
+        """Get comprehensive retry statistics summary.
+        
+        Returns:
+            Dictionary with retry statistics
+        """
+        return {
+            "total_retries": self.total_retries,
+            "endpoints_with_retries": self.endpoints_with_retries,
+            "max_retries_for_single_endpoint": self.max_retries_for_single_endpoint,
+            "average_retries_per_endpoint": self.get_average_retries_per_endpoint(),
+            "retry_rate": self.endpoints_with_retries / max(self.total_calls, 1),
+            "most_retried_endpoints": self._get_most_retried_endpoints(3)
+        }
+    
+    def _get_most_retried_endpoints(self, limit: int = 3) -> list:
+        """Get endpoints with most retries.
+        
+        Args:
+            limit: Maximum number of endpoints to return
+            
+        Returns:
+            List of (endpoint_id, retry_count) tuples
+        """
+        if not self.retry_attempts_by_endpoint:
+            return []
+        
+        sorted_endpoints = sorted(
+            self.retry_attempts_by_endpoint.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        return sorted_endpoints[:limit]
 
 
 class CostCalculator:

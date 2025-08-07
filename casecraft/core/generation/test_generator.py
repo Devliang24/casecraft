@@ -96,7 +96,8 @@ class TestCaseGenerator:
                     completion_tokens=response.usage.get("completion_tokens", 0),
                     total_tokens=response.usage.get("total_tokens", 0),
                     model=response.model,
-                    endpoint_id=endpoint.get_endpoint_id()
+                    endpoint_id=endpoint.get_endpoint_id(),
+                    retry_count=response.retry_count
                 )
             
             return GenerationResult(

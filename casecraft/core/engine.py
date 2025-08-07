@@ -62,7 +62,7 @@ class GenerationResult:
         Returns:
             Dictionary with token usage summary
         """
-        return {
+        base_summary = {
             "prompt_tokens": self.token_statistics.total_prompt_tokens,
             "completion_tokens": self.token_statistics.total_completion_tokens, 
             "total_tokens": self.token_statistics.total_tokens,
@@ -73,6 +73,12 @@ class GenerationResult:
             "average_tokens_per_call": self.token_statistics.get_average_tokens_per_call(),
             "model": self.model_name
         }
+        
+        # Add retry statistics if available
+        retry_summary = self.token_statistics.get_retry_summary()
+        base_summary.update(retry_summary)
+        
+        return base_summary
     
     def has_token_usage(self) -> bool:
         """Check if any token usage data is available.
@@ -399,7 +405,25 @@ class GeneratorEngine:
             result.failed_endpoints.append(f"{endpoint_id}: {str(e)}")
             
             self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
-            self.console.print(f"    [dim red]Reason: {str(e)[:80]}...[/dim red]")
+            
+            # Show detailed error in verbose mode, truncated otherwise
+            if self.verbose:
+                # Show full error details in verbose mode
+                full_error = str(e)
+                self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
+                
+                # Log detailed error information for debugging
+                self.logger.error(f"LLM generation failed for {endpoint_id}: {full_error}")
+                
+                # If this is an LLMError, try to extract more details
+                if isinstance(e, (LLMError, LLMRateLimitError)):
+                    self.logger.debug(f"LLM error type: {type(e).__name__}")
+                    if hasattr(e, '__cause__') and e.__cause__:
+                        self.logger.debug(f"Underlying cause: {e.__cause__}")
+            else:
+                # Show truncated error in normal mode
+                self.console.print(f"    [dim red]Reason: {str(e)[:80]}...[/dim red]")
+            
             progress.update(task_id, advance=1)
             
         except Exception as e:
@@ -407,7 +431,22 @@ class GeneratorEngine:
             result.failed_endpoints.append(f"{endpoint_id}: Unexpected error: {str(e)}")
             
             self.console.print(f"  [red]✗[/red] 意外错误 - {endpoint_id}")
-            self.console.print(f"    [dim red]错误: {str(e)[:80]}...[/dim red]")
+            
+            # Show detailed error in verbose mode, truncated otherwise
+            if self.verbose:
+                # Show full error details in verbose mode
+                full_error = str(e)
+                self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
+                
+                # Log detailed error information for debugging
+                self.logger.error(f"Unexpected error for {endpoint_id}: {full_error}")
+                self.logger.debug(f"Error type: {type(e).__name__}")
+                if hasattr(e, '__cause__') and e.__cause__:
+                    self.logger.debug(f"Underlying cause: {e.__cause__}")
+            else:
+                # Show truncated error in normal mode
+                self.console.print(f"    [dim red]错误: {str(e)[:80]}...[/dim red]")
+            
             progress.update(task_id, advance=1)
     
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:

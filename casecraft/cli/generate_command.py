@@ -154,31 +154,29 @@ def _show_model_config(config: CaseCraftConfig, verbose: bool) -> None:
         config: CaseCraft configuration
         verbose: Whether to show verbose information
     """
-    # Create configuration table
-    table = Table(show_header=False, box=None, padding=(0, 2))
+    # Create 3-column configuration table for proper alignment
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")   # Emoji column
+    table.add_column(width=12, justify="left")  # Label column  
+    table.add_column(justify="left")            # Value column
     
-    # Show raw model name
-    table.add_row("🤖 Model:", f"[cyan bold]{config.llm.model}[/cyan bold]")
+    # Show configuration values with proper column alignment
+    table.add_row("🤖", "Model:", f"[cyan bold]{config.llm.model}[/cyan bold]")
+    table.add_row("🌐", "Base URL:", f"[dim]{config.llm.base_url}[/dim]")
     
-    # Show full base URL
-    table.add_row("🌐 Base URL:", f"[dim]{config.llm.base_url}[/dim]")
-    
-    # Show raw think value
     think_color = "green" if config.llm.think else "dim"
-    table.add_row("🧠 Think:", f"[{think_color}]{str(config.llm.think).lower()}[/{think_color}]")
+    table.add_row("🧠", "Think:", f"[{think_color}]{str(config.llm.think).lower()}[/{think_color}]")
     
-    # Show raw stream value
     stream_color = "green" if config.llm.stream else "dim"
-    table.add_row("📡 Stream:", f"[{stream_color}]{str(config.llm.stream).lower()}[/{stream_color}]")
+    table.add_row("📡", "Stream:", f"[{stream_color}]{str(config.llm.stream).lower()}[/{stream_color}]")
     
-    # Show raw workers value
-    table.add_row("⚡ Workers:", f"[yellow]{config.processing.workers}[/yellow]")
+    table.add_row("⚡", "Workers:", f"[yellow]{config.processing.workers}[/yellow]")
     
     if verbose:
-        # Additional verbose information with raw values
-        table.add_row("⏱️ Timeout:", f"{config.llm.timeout}s")
-        table.add_row("🔄 Max Retries:", f"{config.llm.max_retries}")
-        table.add_row("🌡️ Temperature:", f"{config.llm.temperature}")
+        # Additional verbose information with proper column alignment
+        table.add_row("⏱️", "Timeout:", f"{config.llm.timeout}s")
+        table.add_row("🔄", "Max Retries:", f"{config.llm.max_retries}")
+        table.add_row("🌡️", "Temperature:", f"{config.llm.temperature}")
     
     console.print("\n[bold blue]━━━━━━ 🚀 Generation Config ━━━━━━[/bold blue]")
     console.print(table)
@@ -225,10 +223,15 @@ def _show_dry_run_results(result: GenerationResult) -> None:
     """
     console.print("\n[bold blue]━━━━━━ 🔍 Preview Mode ━━━━━━[/bold blue]")
     
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_row("📁 Found Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
-    table.add_row("✅ Will Generate:", f"[green]{len(result.api_spec.endpoints) - result.skipped_count}[/green]")
-    table.add_row("⏭️ Will Skip:", f"[dim]{result.skipped_count}[/dim] (unchanged)")
+    # Create 3-column table for proper alignment
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")   # Emoji column
+    table.add_column(width=18, justify="left")  # Label column
+    table.add_column(justify="left")            # Value column
+    
+    table.add_row("📁", "Found Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
+    table.add_row("✅", "Will Generate:", f"[green]{len(result.api_spec.endpoints) - result.skipped_count}[/green]")
+    table.add_row("⏭️", "Will Skip:", f"[dim]{result.skipped_count}[/dim] (unchanged)")
     
     console.print(table)
     
@@ -247,31 +250,44 @@ def _show_token_statistics(result: GenerationResult) -> None:
     
     console.print(f"\n[bold blue]━━━━━━ 📊 Usage Statistics ━━━━━━[/bold blue]")
     
-    # Token usage table with raw values
-    token_table = Table(show_header=False, box=None, padding=(0, 2))
+    # Create 3-column token statistics table for proper alignment
+    token_table = Table(show_header=False, box=None, padding=(0, 1))
+    token_table.add_column(width=2, justify="left")   # Emoji column
+    token_table.add_column(width=22, justify="left")  # Label column
+    token_table.add_column(justify="left")            # Value column
     
-    # Model name - show raw value
-    token_table.add_row("🤖 Model:", f"[cyan bold]{summary['model']}[/cyan bold]")
+    # Model and API call statistics
+    token_table.add_row("🤖", "Model:", f"[cyan bold]{summary['model']}[/cyan bold]")
     
-    # API call statistics with visual progress bar
     success_ratio = summary['success_rate']
     progress_bar = "█" * int(success_ratio * 10) + "░" * (10 - int(success_ratio * 10))
-    token_table.add_row("📡 API Calls:", f"{summary['successful_calls']}/{summary['total_calls']} success")
-    token_table.add_row("📈 Success Rate:", f"[green]{progress_bar}[/green] {success_ratio:.0%}")
+    token_table.add_row("📡", "API Calls:", f"{summary['successful_calls']}/{summary['total_calls']} success")
+    token_table.add_row("📈", "Success Rate:", f"[green]{progress_bar}[/green] {success_ratio:.0%}")
     
-    # Token usage with raw numbers (no K/M formatting)
-    token_table.add_row("📝 Input:", f"{summary['prompt_tokens']} tokens")
-    token_table.add_row("📤 Output:", f"{summary['completion_tokens']} tokens")
-    token_table.add_row("📊 Total:", f"[bold yellow]{summary['total_tokens']} tokens[/bold yellow]")
+    # Token usage statistics
+    token_table.add_row("📝", "Input:", f"{summary['prompt_tokens']} tokens")
+    token_table.add_row("📤", "Output:", f"{summary['completion_tokens']} tokens")
+    token_table.add_row("📊", "Total:", f"[bold yellow]{summary['total_tokens']} tokens[/bold yellow]")
     
     if summary['successful_calls'] > 0:
         avg_tokens = summary['average_tokens_per_call']
-        token_table.add_row("⚡ Avg/Call:", f"{avg_tokens}/call")
+        token_table.add_row("⚡", "Avg/Call:", f"{avg_tokens}/call")
         
         # Calculate and show processing speed
         if result.duration > 0:
             endpoints_per_min = (result.generated_count / result.duration) * 60
-            token_table.add_row("🚀 Speed:", f"{endpoints_per_min:.1f} endpoints/min")
+            token_table.add_row("🚀", "Speed:", f"{endpoints_per_min:.1f} endpoints/min")
+    
+    # Add retry statistics if available
+    if summary.get('total_retries', 0) > 0:
+        token_table.add_row("", "", "")  # Empty separator row
+        token_table.add_row("🔄", "Total Retries:", f"[yellow]{summary['total_retries']}[/yellow]")
+        token_table.add_row("📍", "Endpoints w/ Retries:", f"{summary['endpoints_with_retries']}")
+        token_table.add_row("📈", "Max Retries (Single):", f"{summary['max_retries_for_single_endpoint']}")
+        
+        if summary['endpoints_with_retries'] > 0:
+            avg_retries = summary['average_retries_per_endpoint']
+            token_table.add_row("⚖️", "Avg Retries/Endpoint:", f"{avg_retries:.1f}")
     
     console.print(token_table)
     console.print("[dim]────────────────────────────[/dim]")
@@ -285,17 +301,27 @@ def _show_generation_results(result: GenerationResult) -> None:
     """
     console.print("\n[bold green]━━━━━━ ✨ Generation Complete ━━━━━━[/bold green]")
     
-    # Summary table with friendly formatting
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_row("📁 Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
-    table.add_row("✅ Generated:", f"[green bold]{result.generated_count}[/green bold]")
-    table.add_row("⏭️ Skipped:", f"[dim]{result.skipped_count}[/dim]")
+    # Create 3-column summary table for proper alignment
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")   # Emoji column
+    table.add_column(width=18, justify="left")  # Label column
+    table.add_column(justify="left")            # Value column
+    
+    table.add_row("📁", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
+    table.add_row("✅", "Generated:", f"[green bold]{result.generated_count}[/green bold]")
+    table.add_row("⏭️", "Skipped:", f"[dim]{result.skipped_count}[/dim]")
     
     if result.failed_count > 0:
-        table.add_row("❌ Failed:", f"[red]{result.failed_count}[/red]")
+        table.add_row("❌", "Failed:", f"[red]{result.failed_count}[/red]")
     
     # Format duration
-    table.add_row("⏱️ Duration:", f"{result.duration:.1f}s")
+    table.add_row("⏱️", "Duration:", f"{result.duration:.1f}s")
+    
+    # Add retry summary if there were retries
+    if result.has_token_usage():
+        summary = result.get_token_summary()
+        if summary.get('total_retries', 0) > 0:
+            table.add_row("🔄", "Total Retries:", f"[yellow]{summary['total_retries']}[/yellow]")
     
     console.print(table)
     
