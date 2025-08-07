@@ -41,7 +41,7 @@ class GenerationResult:
         
         # Token usage statistics
         self.token_statistics = TokenStatistics()
-        self.model_name: str = "glm-4.5-x"
+        self.model_name: Optional[str] = None
     
     def add_token_usage(self, usage: TokenUsage, success: bool = True) -> None:
         """Add token usage from a single LLM API call.
@@ -322,24 +322,29 @@ class GeneratorEngine:
             rate_limit=1.0 if self.config.processing.workers >= 2 else 0.5
         )
         
-        # Create progress tracking with friendly Chinese text
+        # Always show progress bar for overall progress
+        # The streaming display will show below it
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
-            console=self.console
+            console=self.console,
+            transient=False  # Keep progress bar visible
         ) as progress:
             
-            task = progress.add_task("🚀 Generating test cases...", total=len(endpoints))
+            task = progress.add_task("🚀 生成测试用例中...", total=100)  # Use percentage
             
             # Create tasks for concurrent processing with rate limiting
             tasks = [
                 controller.execute(
-                    self._generate_endpoint_test_cases(endpoint, None, progress, task, result)
+                    self._generate_endpoint_test_cases(
+                        endpoint, None, progress, task, result,
+                        endpoint_index=i, total_endpoints=len(endpoints)
+                    )
                 )
-                for endpoint in endpoints
+                for i, endpoint in enumerate(endpoints)
             ]
             
             # Execute all tasks
@@ -351,7 +356,9 @@ class GeneratorEngine:
         semaphore: Optional[asyncio.Semaphore],
         progress: Progress,
         task_id: TaskID,
-        result: GenerationResult
+        result: GenerationResult,
+        endpoint_index: int = 0,
+        total_endpoints: int = 1
     ) -> None:
         """Generate test cases for a single endpoint.
         
@@ -366,8 +373,21 @@ class GeneratorEngine:
         endpoint_id = endpoint.get_endpoint_id()
         
         try:
-            # Generate test cases
-            generation_result = await self._test_generator.generate_test_cases(endpoint)
+            # Create a progress callback for streaming updates
+            def update_progress(stream_progress: float):
+                # Calculate total progress: endpoint progress + stream progress within endpoint
+                total_progress = (endpoint_index + stream_progress) / total_endpoints
+                progress.update(
+                    task_id, 
+                    completed=int(total_progress * 100),
+                    description=f"生成测试用例: {endpoint_id}"
+                )
+            
+            # Generate test cases with progress callback
+            generation_result = await self._test_generator.generate_test_cases(
+                endpoint,
+                progress_callback=update_progress if self.config.llm.stream else None
+            )
             collection = generation_result.test_cases
             
             # Add token usage to result statistics
@@ -395,7 +415,12 @@ class GeneratorEngine:
             else:
                 token_info = ""
             
-            progress.update(task_id, advance=1, description=f"Processing: {endpoint_id}")
+            # Final update to mark this endpoint as complete
+            progress.update(
+                task_id, 
+                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
+                description=f"已完成: {endpoint_id}"
+            )
             
             # Brief success log with friendly formatting
             self.console.print(f"  [green]✓[/green] Generated [bold]{len(collection.test_cases)}[/bold] test cases - {endpoint_id} [dim]{token_info}[/dim]")
@@ -424,7 +449,12 @@ class GeneratorEngine:
                 # Show truncated error in normal mode
                 self.console.print(f"    [dim red]Reason: {str(e)[:80]}...[/dim red]")
             
-            progress.update(task_id, advance=1)
+            # Update progress even on failure
+            progress.update(
+                task_id,
+                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
+                description=f"失败: {endpoint_id}"
+            )
             
         except Exception as e:
             result.failed_count += 1
@@ -447,7 +477,12 @@ class GeneratorEngine:
                 # Show truncated error in normal mode
                 self.console.print(f"    [dim red]错误: {str(e)[:80]}...[/dim red]")
             
-            progress.update(task_id, advance=1)
+            # Update progress even on failure
+            progress.update(
+                task_id,
+                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
+                description=f"失败: {endpoint_id}"
+            )
     
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:
         """Save test case collection to file.

@@ -45,7 +45,191 @@ class TestCaseGenerator:
         self.logger = get_logger("test_generator")
         self._test_case_schema = self._get_test_case_schema()
     
-    async def generate_test_cases(self, endpoint: APIEndpoint) -> GenerationResult:
+    def _generate_default_tags(self, endpoint: APIEndpoint) -> List[str]:
+        """Generate default tags for endpoints without tags.
+        
+        Args:
+            endpoint: API endpoint
+            
+        Returns:
+            List of appropriate tags
+        """
+        path_lower = endpoint.path.lower()
+        tags = []
+        
+        # System/monitoring endpoints
+        if "/health" in path_lower or "/healthz" in path_lower or "/ready" in path_lower:
+            tags.append("System")
+            tags.append("Monitoring")
+        elif "/metrics" in path_lower:
+            tags.append("Monitoring")
+        elif "/debug" in path_lower:
+            tags.append("Debug")
+        elif "/test" in path_lower:
+            tags.append("Testing")
+        
+        # API documentation
+        elif "/docs" in path_lower or "/swagger" in path_lower or "/openapi" in path_lower:
+            tags.append("Documentation")
+        
+        # Root endpoint
+        elif path_lower == "/" or path_lower == "":
+            tags.append("General")
+        
+        # Authentication endpoints
+        elif "/auth" in path_lower or "/login" in path_lower or "/logout" in path_lower:
+            tags.append("Authentication")
+        
+        # User endpoints
+        elif "/user" in path_lower or "/profile" in path_lower:
+            tags.append("Users")
+        
+        # Product endpoints
+        elif "/product" in path_lower:
+            tags.append("Products")
+        
+        # Order endpoints
+        elif "/order" in path_lower:
+            tags.append("Orders")
+        
+        # Cart endpoints
+        elif "/cart" in path_lower:
+            tags.append("Cart")
+        
+        # Category endpoints
+        elif "/categor" in path_lower:
+            tags.append("Categories")
+        
+        # If no specific tag matched, use a generic one based on method
+        if not tags:
+            if endpoint.method == "GET":
+                tags.append("Query")
+            elif endpoint.method in ["POST", "PUT", "PATCH"]:
+                tags.append("Mutation")
+            elif endpoint.method == "DELETE":
+                tags.append("Deletion")
+            else:
+                tags.append("General")
+        
+        return tags
+    
+    def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
+        """Generate concise Chinese description for endpoint.
+        
+        Args:
+            endpoint: API endpoint
+            
+        Returns:
+            Concise Chinese description
+        """
+        # Common endpoint patterns to concise Chinese descriptions
+        path_lower = endpoint.path.lower()
+        method = endpoint.method.upper()
+        
+        # Authentication endpoints
+        if "/auth/register" in path_lower:
+            return "用户注册接口"
+        elif "/auth/login" in path_lower:
+            return "用户登录接口"
+        elif "/auth/logout" in path_lower:
+            return "用户登出接口"
+        elif "/auth/refresh" in path_lower:
+            return "刷新令牌接口"
+        
+        # User endpoints
+        elif "/users/me" in path_lower or "/user/profile" in path_lower:
+            if method == "GET":
+                return "获取当前用户信息"
+            elif method in ["PUT", "PATCH"]:
+                return "更新用户信息"
+            elif method == "DELETE":
+                return "删除用户账号"
+        elif "/users" in path_lower:
+            if method == "GET":
+                return "获取用户列表"
+            elif method == "POST":
+                return "创建用户"
+        
+        # Product endpoints
+        elif "/products" in path_lower or "/product" in path_lower:
+            if method == "GET":
+                if "{" in endpoint.path:  # Has path parameter
+                    return "获取产品详情"
+                else:
+                    return "获取产品列表"
+            elif method == "POST":
+                return "创建产品"
+            elif method == "PUT" or method == "PATCH":
+                return "更新产品信息"
+            elif method == "DELETE":
+                return "删除产品"
+        
+        # Cart endpoints
+        elif "/cart" in path_lower:
+            if "items" in path_lower:
+                if method == "POST":
+                    return "添加购物车项目"
+                elif method == "DELETE":
+                    return "移除购物车项目"
+                elif method == "PUT":
+                    return "更新购物车项目"
+            elif method == "GET":
+                return "获取购物车内容"
+            elif method == "DELETE":
+                return "清空购物车"
+        
+        # Order endpoints
+        elif "/orders" in path_lower or "/order" in path_lower:
+            if method == "GET":
+                if "{" in endpoint.path:
+                    return "获取订单详情"
+                else:
+                    return "获取订单列表"
+            elif method == "POST":
+                return "创建订单"
+            elif method == "PUT":
+                return "更新订单状态"
+            elif method == "DELETE":
+                return "取消订单"
+        
+        # Category endpoints
+        elif "/categories" in path_lower or "/category" in path_lower:
+            if method == "GET":
+                if "{" in endpoint.path:
+                    return "获取分类详情"
+                else:
+                    return "获取分类列表"
+            elif method == "POST":
+                return "创建分类"
+            elif method == "PUT":
+                return "更新分类"
+            elif method == "DELETE":
+                return "删除分类"
+        
+        # Health check
+        elif "/health" in path_lower:
+            return "健康检查接口"
+        
+        # Default: use summary if available, otherwise generate from method and path
+        if endpoint.summary:
+            # Try to keep it short
+            summary = endpoint.summary
+            if len(summary) > 20:
+                # Extract key action
+                if method == "GET":
+                    return f"获取{endpoint.path.split('/')[-1]}数据"
+                elif method == "POST":
+                    return f"创建{endpoint.path.split('/')[-1]}"
+                elif method == "PUT" or method == "PATCH":
+                    return f"更新{endpoint.path.split('/')[-1]}"
+                elif method == "DELETE":
+                    return f"删除{endpoint.path.split('/')[-1]}"
+            return summary
+        
+        # Final fallback
+        return f"{method} {endpoint.path} 接口"
+    
+    async def generate_test_cases(self, endpoint: APIEndpoint, progress_callback: Optional[callable] = None) -> GenerationResult:
         """Generate test cases for an API endpoint.
         
         Args:
@@ -62,9 +246,14 @@ class TestCaseGenerator:
             prompt = self._build_prompt(endpoint)
             system_prompt = self._get_system_prompt()
             
+            # Generate with streaming support
+            if self.llm_client.config.stream:
+                self.logger.info(f"Using streaming mode for {endpoint.get_endpoint_id()}")
+            
             response = await self.llm_client.generate(
                 prompt=prompt,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                progress_callback=progress_callback
             )
             
             # Parse and validate LLM response
@@ -73,14 +262,20 @@ class TestCaseGenerator:
             # Enhance test cases with response schemas and smart status codes
             test_cases = self._enhance_test_cases(test_cases, endpoint)
             
+            # Generate concise Chinese description
+            concise_description = self._generate_concise_chinese_description(endpoint)
+            
+            # Generate appropriate tags if missing
+            endpoint_tags = endpoint.tags if endpoint.tags else self._generate_default_tags(endpoint)
+            
             # Create test case collection with metadata
             collection = TestCaseCollection(
                 endpoint_id=endpoint.get_endpoint_id(),
                 method=endpoint.method,
                 path=endpoint.path,
                 summary=endpoint.summary,
-                description=endpoint.description,
-                tags=endpoint.tags,
+                description=concise_description,
+                tags=endpoint_tags,
                 test_cases=test_cases
             )
             
@@ -157,8 +352,7 @@ Headers设置智能规则：
 
 3. 基于请求体类型的Headers：
    - JSON请求体: "Content-Type": "application/json"
-   - 表单数据: "Content-Type": "application/x-www-form-urlencoded"
-   - 文件上传: "Content-Type": "multipart/form-data"
+   - 注意：body字段必须始终是JSON对象格式，不要生成URL编码字符串
 
 4. 负向测试的Headers策略：
    - 缺失认证headers (返回401/403)
@@ -185,6 +379,10 @@ Headers设置智能规则：
 - 字符串使用双引号，避免特殊字符
 - Headers必须基于上述规则智能生成，不要随意设置
 - Tags必须基于上述规则智能生成，绝对不能为空数组[]
+- body字段格式要求：
+  * body必须是JSON对象格式，例如：{"username": "test", "password": "123456"}
+  * 绝对不要生成URL编码字符串，如："username=test&password=123456"
+  * 如果不需要body，则不包含body字段（不要设为null）
 - 参数字段规则：
   * 有路径参数时才包含path_params字段（不要设为null）
   * 有查询参数时才包含query_params字段（不要设为null）
@@ -318,6 +516,27 @@ Return the test cases as a JSON array:"""
         test_cases = []
         for i, test_case_data in enumerate(test_data):
             try:
+                # Fix body field if it's a URL-encoded string
+                if 'body' in test_case_data and isinstance(test_case_data['body'], str):
+                    body_str = test_case_data['body']
+                    # Check if it looks like URL-encoded data
+                    if '=' in body_str and '&' in body_str:
+                        self.logger.warning(f"Test case {i+1}: body is URL-encoded string, converting to JSON object")
+                        # Parse URL-encoded string
+                        import urllib.parse
+                        params = urllib.parse.parse_qs(body_str)
+                        # Convert to simple dict (take first value for each key)
+                        test_case_data['body'] = {k: v[0] if len(v) == 1 else v for k, v in params.items()}
+                    else:
+                        # Try to parse as JSON string
+                        try:
+                            test_case_data['body'] = json.loads(body_str)
+                            self.logger.warning(f"Test case {i+1}: body was JSON string, converted to object")
+                        except json.JSONDecodeError:
+                            # If all else fails, wrap in an object
+                            self.logger.warning(f"Test case {i+1}: body is plain string, wrapping in object")
+                            test_case_data['body'] = {"data": body_str}
+                
                 # Validate against schema
                 validate(test_case_data, self._test_case_schema)
                 
@@ -445,6 +664,14 @@ Return the test cases as a JSON array:"""
                 "headers": {
                     "type": "object",
                     "description": "Request headers"
+                },
+                "path_params": {
+                    "type": "object",
+                    "description": "Path parameters"
+                },
+                "query_params": {
+                    "type": "object",
+                    "description": "Query parameters"
                 },
                 "body": {
                     "oneOf": [
