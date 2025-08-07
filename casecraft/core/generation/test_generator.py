@@ -448,10 +448,36 @@ class TestCaseGenerator:
         if "json" in last_error.lower():
             error_hints.append("确保返回有效的JSON数组格式")
         
+        # Parse specific count requirements from error message
         if "at least" in last_error:
-            error_hints.append("需要生成更多测试用例以满足覆盖要求")
+            import re
+            # Try to extract specific numbers from error message
+            # Pattern: "At least X positive/negative/boundary test cases required, got Y"
+            pattern = r"At least (\d+) (\w+) test cases? (?:are )?required.*got (\d+)"
+            match = re.search(pattern, last_error)
+            if match:
+                required_count = match.group(1)
+                test_type = match.group(2)
+                actual_count = match.group(3)
+                error_hints.append(f"必须生成至少 {required_count} 个 {test_type} 类型的测试用例（当前只有 {actual_count} 个）")
+            else:
+                # Fallback generic hint
+                error_hints.append("需要生成更多测试用例以满足覆盖要求")
+            
+            # Also get the complexity requirements for this endpoint
+            complexity = self._evaluate_endpoint_complexity(endpoint)
+            error_hints.append(f"该 {complexity['complexity_level']} 复杂度端点需要：")
+            error_hints.append(f"  • 正向测试: {complexity['recommended_counts']['positive'][0]}-{complexity['recommended_counts']['positive'][1]} 个")
+            error_hints.append(f"  • 负向测试: {complexity['recommended_counts']['negative'][0]}-{complexity['recommended_counts']['negative'][1]} 个")
+            error_hints.append(f"  • 边界测试: {complexity['recommended_counts']['boundary'][0]}-{complexity['recommended_counts']['boundary'][1]} 个")
+            error_hints.append(f"  • 总计: {complexity['recommended_counts']['total'][0]}-{complexity['recommended_counts']['total'][1]} 个")
         
         # Build retry hint section
+        # Get complexity info for better examples
+        complexity = self._evaluate_endpoint_complexity(endpoint)
+        min_positive = complexity['recommended_counts']['positive'][0]
+        min_negative = complexity['recommended_counts']['negative'][0]
+        
         retry_hint = f"""
 
 ⚠️ **重试 {attempt + 1}/3 - 上次生成失败**
@@ -461,7 +487,7 @@ class TestCaseGenerator:
 **特别注意事项:**
 {chr(10).join(f"• {hint}" for hint in error_hints)}
 
-**正确的返回格式示例:**
+**正确的返回格式示例（最少需要 {min_positive} 个正向 + {min_negative} 个负向测试）:**
 ```json
 [
   {{
@@ -477,6 +503,17 @@ class TestCaseGenerator:
   }},
   {{
     "test_id": 2,
+    "name": "包含可选字段的成功请求",
+    "description": "测试包含所有可选字段的情况",
+    "method": "{endpoint.method}",
+    "path": "{endpoint.path}",
+    "headers": {{"Content-Type": "application/json"}},
+    "body": {{"username": "test2", "password": "123456", "email": "test@example.com"}},
+    "status": 200,
+    "test_type": "positive"
+  }},
+  {{
+    "test_id": 3,
     "name": "缺少必需字段",
     "description": "测试缺少username字段的情况",
     "method": "{endpoint.method}",
@@ -485,11 +522,23 @@ class TestCaseGenerator:
     "body": {{"password": "123456"}},
     "status": 400,
     "test_type": "negative"
+  }},
+  {{
+    "test_id": 4,
+    "name": "无效的参数格式",
+    "description": "测试参数格式错误的情况",
+    "method": "{endpoint.method}",
+    "path": "{endpoint.path}",
+    "headers": {{"Content-Type": "application/json"}},
+    "body": {{"username": 123, "password": "123456"}},
+    "status": 400,
+    "test_type": "negative"
   }}
 ]
 ```
 
 请严格按照上述格式生成测试用例，确保返回JSON数组。
+⚠️ 重要：必须生成足够数量的测试用例，特别是 {min_negative} 个或更多负向测试用例！
 """
         
         return base_prompt + retry_hint
@@ -498,13 +547,18 @@ class TestCaseGenerator:
         """Get enhanced system prompt for retry attempts."""
         return """你是一个API用例设计测试专家。
 
-重要提醒：
+⚠️ 重要提醒（重试时必须注意）：
 1. 必须返回JSON数组格式，即使只有一个测试用例也要用 [...] 包装
-2. 每个测试用例都必须包含所有必需字段
-3. 不要只返回headers或其他部分内容
+2. 每个测试用例都必须包含所有必需字段（test_id, name, description, method, path, status, test_type）
+3. 不要只返回headers或其他部分内容，必须返回完整的测试用例对象
 4. 严格遵守JSON语法，确保可以被正确解析
+5. 必须生成足够数量的测试用例来满足覆盖要求：
+   - simple端点：至少2个positive + 2个negative
+   - medium端点：至少2个positive + 3个negative  
+   - complex端点：至少3个positive + 4个negative
+6. 每个测试用例必须有明确的测试目的，避免重复
 
-根据提供的API规范和复杂度要求生成测试用例。"""
+根据提供的API规范和复杂度要求生成测试用例。特别注意生成足够数量的负向测试用例！"""
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
@@ -514,6 +568,10 @@ class TestCaseGenerator:
 1. 根据接口复杂度生成适量的测试用例，避免冗余
 2. 每个测试用例都应该有明确的测试目的和价值
 3. 优先覆盖关键场景，不要为了凑数而生成无意义的用例
+4. **必须满足最低数量要求**：
+   - simple端点：至少2个positive + 2个negative
+   - medium端点：至少2个positive + 3个negative
+   - complex端点：至少3个positive + 4个negative
 
 测试用例要求：
 - 每个测试用例必须有test_id（从1开始的递增编号）
@@ -649,9 +707,11 @@ Headers设置智能规则：
 - 影响因素: {', '.join(complexity['factors']) if complexity['factors'] else '基础接口'}
 - 建议生成数量:
   - 总计: {complexity['recommended_counts']['total'][0]}-{complexity['recommended_counts']['total'][1]}个测试用例
-  - 正向测试: {complexity['recommended_counts']['positive'][0]}-{complexity['recommended_counts']['positive'][1]}个
-  - 负向测试: {complexity['recommended_counts']['negative'][0]}-{complexity['recommended_counts']['negative'][1]}个
+  - 正向测试: **最少{complexity['recommended_counts']['positive'][0]}个** (建议{complexity['recommended_counts']['positive'][1]}个)
+  - 负向测试: **最少{complexity['recommended_counts']['negative'][0]}个** (建议{complexity['recommended_counts']['negative'][1]}个)
   - 边界测试: {complexity['recommended_counts']['boundary'][0]}-{complexity['recommended_counts']['boundary'][1]}个
+
+⚠️ **强制要求**: 必须生成至少 {complexity['recommended_counts']['positive'][0]} 个正向测试和 {complexity['recommended_counts']['negative'][0]} 个负向测试，否则会导致生成失败！
 """
 
         # Build the prompt
@@ -682,7 +742,12 @@ Headers设置智能规则：
 ```
 
 请根据接口复杂度生成相应数量的高质量测试用例。每个用例都应该有明确的测试目的，避免重复或无意义的测试。
-注意：生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证。
+
+⚠️ **关键提醒**:
+1. 必须严格遵守最低数量要求（正向至少{complexity['recommended_counts']['positive'][0]}个，负向至少{complexity['recommended_counts']['negative'][0]}个）
+2. 每个测试用例必须包含所有必需字段
+3. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
+4. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
 
 Return the test cases as a JSON array:"""
         
@@ -796,20 +861,24 @@ Return the test cases as a JSON array:"""
         if positive_count < min_positive:
             raise TestGeneratorError(
                 f"At least {min_positive} positive test cases are required for "
-                f"{complexity['complexity_level']} endpoint, got {positive_count}"
+                f"{complexity['complexity_level']} endpoint, got {positive_count}. "
+                f"Please generate {min_positive - positive_count} more positive test cases."
             )
         
         if negative_count < min_negative:
             raise TestGeneratorError(
                 f"At least {min_negative} negative test cases are required for "
-                f"{complexity['complexity_level']} endpoint, got {negative_count}"
+                f"{complexity['complexity_level']} endpoint, got {negative_count}. "
+                f"Please generate {min_negative - negative_count} more negative test cases."
             )
         
         # Check total count
         if total_count < min_total:
             raise TestGeneratorError(
                 f"At least {min_total} test cases are required for "
-                f"{complexity['complexity_level']} endpoint, got {total_count}"
+                f"{complexity['complexity_level']} endpoint, got {total_count}. "
+                f"Missing: {min_positive - positive_count} positive, "
+                f"{min_negative - negative_count} negative test cases."
             )
         
         # Log test case distribution with complexity info
