@@ -133,12 +133,6 @@ class OutputManager:
         # Base output directory
         output_dir = Path(self.config.directory)
         
-        # Organize by tag if configured
-        if self.config.organize_by_tag and collection.tags:
-            tag = collection.tags[0]  # Use first tag
-            tag_dir = sanitize_filename(tag)
-            output_dir = output_dir / tag_dir
-        
         # Ensure directory exists
         ensure_directory(output_dir)
         

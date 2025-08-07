@@ -88,7 +88,6 @@ class TestCaseCollection(BaseModel):
     path: str = Field(..., description="API path")
     summary: Optional[str] = None
     description: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
     test_cases: List[TestCase] = Field(default_factory=list)
     metadata: TestCaseMetadata = Field(default_factory=TestCaseMetadata)
     

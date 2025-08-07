@@ -46,74 +46,6 @@ class TestCaseGenerator:
         self.logger = get_logger("test_generator")
         self._test_case_schema = self._get_test_case_schema()
     
-    def _generate_default_tags(self, endpoint: APIEndpoint) -> List[str]:
-        """Generate default tags for endpoints without tags.
-        
-        Args:
-            endpoint: API endpoint
-            
-        Returns:
-            List of appropriate tags
-        """
-        path_lower = endpoint.path.lower()
-        tags = []
-        
-        # System/monitoring endpoints
-        if "/health" in path_lower or "/healthz" in path_lower or "/ready" in path_lower:
-            tags.append("System")
-            tags.append("Monitoring")
-        elif "/metrics" in path_lower:
-            tags.append("Monitoring")
-        elif "/debug" in path_lower:
-            tags.append("Debug")
-        elif "/test" in path_lower:
-            tags.append("Testing")
-        
-        # API documentation
-        elif "/docs" in path_lower or "/swagger" in path_lower or "/openapi" in path_lower:
-            tags.append("Documentation")
-        
-        # Root endpoint
-        elif path_lower == "/" or path_lower == "":
-            tags.append("General")
-        
-        # Authentication endpoints
-        elif "/auth" in path_lower or "/login" in path_lower or "/logout" in path_lower:
-            tags.append("Authentication")
-        
-        # User endpoints
-        elif "/user" in path_lower or "/profile" in path_lower:
-            tags.append("Users")
-        
-        # Product endpoints
-        elif "/product" in path_lower:
-            tags.append("Products")
-        
-        # Order endpoints
-        elif "/order" in path_lower:
-            tags.append("Orders")
-        
-        # Cart endpoints
-        elif "/cart" in path_lower:
-            tags.append("Cart")
-        
-        # Category endpoints
-        elif "/categor" in path_lower:
-            tags.append("Categories")
-        
-        # If no specific tag matched, use a generic one based on method
-        if not tags:
-            if endpoint.method == "GET":
-                tags.append("Query")
-            elif endpoint.method in ["POST", "PUT", "PATCH"]:
-                tags.append("Mutation")
-            elif endpoint.method == "DELETE":
-                tags.append("Deletion")
-            else:
-                tags.append("General")
-        
-        return tags
-    
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
         """Generate concise Chinese description for endpoint.
         
@@ -284,9 +216,6 @@ class TestCaseGenerator:
                 # Generate concise Chinese description
                 concise_description = self._generate_concise_chinese_description(endpoint)
                 
-                # Generate appropriate tags if missing
-                endpoint_tags = endpoint.tags if endpoint.tags else self._generate_default_tags(endpoint)
-                
                 # Create test case collection with metadata
                 collection = TestCaseCollection(
                     endpoint_id=endpoint.get_endpoint_id(),
@@ -294,7 +223,6 @@ class TestCaseGenerator:
                     path=endpoint.path,
                     summary=endpoint.summary,
                     description=concise_description,
-                    tags=endpoint_tags,
                     test_cases=test_cases
                 )
                 
@@ -653,8 +581,7 @@ Headers设置智能规则：
             "method": endpoint.method,
             "path": endpoint.path,
             "summary": endpoint.summary,
-            "description": endpoint.description,
-            "tags": endpoint.tags
+            "description": endpoint.description
         }
         
         # Add parameters info
