@@ -86,19 +86,30 @@ class GenerationResult:
 class GeneratorEngine:
     """Main engine for coordinating test case generation."""
     
-    def __init__(self, config: CaseCraftConfig, console: Optional[Console] = None):
+    def __init__(self, config: CaseCraftConfig, console: Optional[Console] = None, verbose: bool = False, quiet: bool = False):
         """Initialize generator engine.
         
         Args:
             config: CaseCraft configuration
             console: Rich console for output
+            verbose: Enable verbose output
+            quiet: Enable quiet mode (warnings/errors only)
         """
         self.config = config
         self.console = console or Console()
+        self.verbose = verbose
+        self.quiet = quiet
         
         # Initialize logging and error handling
-        self.logger = CaseCraftLogger("generator", console, verbose=False)
-        self.error_handler = ErrorHandler(console, verbose=False)
+        # In quiet mode, we only show critical messages
+        self.logger = CaseCraftLogger(
+            "generator", 
+            console, 
+            verbose=verbose,
+            show_timestamp=True,
+            show_level=True
+        )
+        self.error_handler = ErrorHandler(console, verbose=verbose)
         
         # Initialize components
         self.api_parser = APIParser(timeout=30)
@@ -147,7 +158,8 @@ class GeneratorEngine:
                 
                 # Apply filters
                 if include_tags or exclude_tags or include_paths or exclude_paths:
-                    self.console.print("[blue]🔍 Applying filters...[/blue]")
+                    if not self.quiet:
+                        self.console.print("[blue]🔍 Applying filters...[/blue]")
                     api_spec = self.api_parser.filter_endpoints(
                         api_spec, include_tags, exclude_tags, include_paths, exclude_paths
                     )
@@ -167,20 +179,22 @@ class GeneratorEngine:
                 self._show_generation_summary(api_spec, to_generate, to_skip, dry_run)
                 
                 if not to_generate:
-                    self.console.print("[green]✨ 所有端点已是最新状态，无需重新生成！[/green]")
+                    if not self.quiet:
+                        self.console.print("[green]✨ 所有端点已是最新状态，无需重新生成！[/green]")
                     # All endpoints up to date is considered success
                     logging_context.set_success(True)
                     return result
                 
                 # Show batch generation optimization notice
-                if len(to_generate) > 10:
+                if len(to_generate) > 10 and not self.quiet:
                     self.console.print(f"[yellow]📊 Detected batch task: {len(to_generate)} endpoints[/yellow]")
                     workers_text = "1" if self.config.processing.workers == 1 else str(self.config.processing.workers)
                     self.console.print(f"[dim]   • Workers: {workers_text}[/dim]")
                     self.console.print(f"[dim]   • Estimated time: ~{self._estimate_generation_time(len(to_generate))} minutes[/dim]")
                 
                 if dry_run:
-                    self.console.print("[yellow]🔍 Preview completed - no test cases generated[/yellow]")
+                    if not self.quiet:
+                        self.console.print("[yellow]🔍 Preview completed - no test cases generated[/yellow]")
                     # Dry run is considered success (no actual generation expected)
                     logging_context.set_success(True)
                     return result

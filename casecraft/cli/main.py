@@ -13,10 +13,15 @@ console = Console()
 @click.option(
     "--verbose", "-v",
     is_flag=True,
-    help="Enable verbose output"
+    help="Enable verbose output (shows DEBUG level)"
+)
+@click.option(
+    "--quiet", "-q",
+    is_flag=True,
+    help="Quiet mode - only show warnings and errors"
 )
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
     """CaseCraft: Generate API test cases using BigModel LLM.
     
     A CLI tool that parses API documentation (OpenAPI/Swagger) and uses
@@ -24,6 +29,25 @@ def cli(ctx: click.Context, verbose: bool) -> None:
     """
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    ctx.obj["quiet"] = quiet
+    
+    # Configure logging based on flags
+    if verbose and quiet:
+        console.print("[yellow]Warning: Both --verbose and --quiet specified. Using verbose mode.[/yellow]")
+        ctx.obj["quiet"] = False
+    
+    # Set up initial logging configuration
+    from casecraft.utils.logging import configure_logging
+    
+    if quiet:
+        log_level = "WARNING"
+    elif verbose:
+        log_level = "DEBUG"
+    else:
+        log_level = "INFO"
+    
+    # Configure logging with console output disabled (we use CaseCraftLogger for console)
+    configure_logging(log_level=log_level, console_output=False)
 
 
 @cli.command()
@@ -109,6 +133,7 @@ def generate(
     from casecraft.cli.generate_command import run_generate_command
     
     verbose = ctx.obj.get("verbose", False)
+    quiet = ctx.obj.get("quiet", False)
     
     run_generate_command(
         source=source,
@@ -120,7 +145,8 @@ def generate(
         force=force,
         dry_run=dry_run,
         organize_by=organize_by,
-        verbose=verbose
+        verbose=verbose,
+        quiet=quiet
     )
 
 

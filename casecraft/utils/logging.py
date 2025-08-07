@@ -15,7 +15,8 @@ def configure_logging(
     log_level: str = "INFO",
     log_file: Optional[Union[str, Path]] = None,
     verbose: bool = False,
-    structured: bool = True
+    structured: bool = True,
+    console_output: bool = False  # New parameter to control console output
 ) -> None:
     """Configure structured logging for CaseCraft.
     
@@ -24,30 +25,72 @@ def configure_logging(
         log_file: Optional log file path
         verbose: Enable verbose output
         structured: Use structured logging format
+        console_output: Enable structlog console output (default: False to avoid duplication)
     """
-    # Configure structlog
+    # Configure structlog processors
     processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="ISO"),
     ]
     
-    if structured:
-        processors.extend([
-            structlog.processors.JSONRenderer()
-        ])
+    # Only add console renderer if explicitly requested
+    # This prevents duplicate output when using CaseCraftLogger
+    if console_output:
+        if structured:
+            processors.extend([
+                structlog.processors.JSONRenderer()
+            ])
+        else:
+            processors.extend([
+                structlog.dev.ConsoleRenderer(colors=True)
+            ])
     else:
-        processors.extend([
-            structlog.dev.ConsoleRenderer(colors=True)
-        ])
+        # Use a no-op processor that doesn't output to console
+        processors.append(lambda _, __, event_dict: event_dict)
     
     # Configure structlog
+    import logging
+    
+    # Map log level string to logging level
+    log_levels = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL
+    }
+    level = log_levels.get(log_level.upper(), logging.INFO)
+    
+    # Use appropriate logger factory
+    if console_output:
+        logger_factory = structlog.WriteLoggerFactory()
+    else:
+        # Create a no-op logger factory that ignores all output
+        class NoOpLoggerFactory:
+            def __call__(self, *args, **kwargs):
+                return NoOpLogger()
+        
+        class NoOpLogger:
+            def msg(self, *args, **kwargs):
+                pass
+            def debug(self, *args, **kwargs):
+                pass
+            def info(self, *args, **kwargs):
+                pass
+            def warning(self, *args, **kwargs):
+                pass
+            def error(self, *args, **kwargs):
+                pass
+            def critical(self, *args, **kwargs):
+                pass
+        
+        logger_factory = NoOpLoggerFactory()
+    
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(structlog.stdlib, log_level.upper(), structlog.INFO)
-        ),
-        logger_factory=structlog.WriteLoggerFactory(),
+        wrapper_class=structlog.make_filtering_bound_logger(level),
+        logger_factory=logger_factory,
         cache_logger_on_first_use=True,
     )
     
@@ -76,7 +119,9 @@ class CaseCraftLogger:
         self,
         name: str = "casecraft",
         console: Optional[Console] = None,
-        verbose: bool = False
+        verbose: bool = False,
+        show_timestamp: bool = True,
+        show_level: bool = True
     ):
         """Initialize CaseCraft logger.
         
@@ -84,12 +129,54 @@ class CaseCraftLogger:
             name: Logger name
             console: Rich console for output
             verbose: Enable verbose output
+            show_timestamp: Show timestamp in console output
+            show_level: Show log level in console output
         """
         self.name = name
         self.logger = get_logger(name)
         self.console = console or Console()
         self.verbose = verbose
+        self.show_timestamp = show_timestamp
+        self.show_level = show_level
         self._context: Dict[str, Any] = {}
+        
+        # Define level colors and labels
+        self.level_styles = {
+            "DEBUG": ("dim", "[DEBUG]"),
+            "INFO": ("cyan", "[INFO]"),
+            "SUCCESS": ("green", "[SUCCESS]"),
+            "WARNING": ("yellow", "[WARNING]"),
+            "ERROR": ("red", "[ERROR]"),
+            "PROGRESS": ("blue", "[PROGRESS]")
+        }
+    
+    def _format_message(self, message: str, level: str = "INFO") -> str:
+        """Format message with timestamp and level.
+        
+        Args:
+            message: The log message
+            level: Log level
+            
+        Returns:
+            Formatted message string
+        """
+        parts = []
+        
+        # Add timestamp if enabled
+        if self.show_timestamp:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            parts.append(f"[dim]{timestamp}[/dim]")
+        
+        # Add level if enabled
+        if self.show_level and level in self.level_styles:
+            style, label = self.level_styles[level]
+            parts.append(f"[{style}]{label}[/{style}]")
+        
+        # Add the message
+        parts.append(message)
+        
+        return " ".join(parts)
     
     def bind(self, **kwargs) -> "CaseCraftLogger":
         """Bind context variables to logger.
@@ -103,7 +190,9 @@ class CaseCraftLogger:
         new_logger = CaseCraftLogger(
             name=self.name,
             console=self.console,
-            verbose=self.verbose
+            verbose=self.verbose,
+            show_timestamp=self.show_timestamp,
+            show_level=self.show_level
         )
         new_logger.logger = self.logger.bind(**kwargs)
         new_logger._context = {**self._context, **kwargs}
@@ -112,31 +201,46 @@ class CaseCraftLogger:
     def debug(self, message: str, **kwargs) -> None:
         """Log debug message."""
         if self.verbose:
-            self.console.print(f"[dim]DEBUG: {message}[/dim]")
+            formatted = self._format_message(message, "DEBUG")
+            self.console.print(formatted)
         self.logger.debug(message, **kwargs)
     
     def info(self, message: str, **kwargs) -> None:
         """Log info message."""
+        formatted = self._format_message(message, "INFO")
+        self.console.print(formatted)
         self.logger.info(message, **kwargs)
     
     def warning(self, message: str, **kwargs) -> None:
         """Log warning message."""
-        self.console.print(f"[yellow]WARNING: {message}[/yellow]")
+        formatted = self._format_message(message, "WARNING")
+        self.console.print(formatted)
         self.logger.warning(message, **kwargs)
     
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
-        self.console.print(f"[red]ERROR: {message}[/red]")
+        formatted = self._format_message(message, "ERROR")
+        self.console.print(formatted)
         self.logger.error(message, **kwargs)
     
     def success(self, message: str, **kwargs) -> None:
         """Log success message."""
-        self.console.print(f"[green]✓ {message}[/green]")
+        # For success, we can optionally show a checkmark
+        if self.show_level:
+            formatted = self._format_message(f"✓ {message}", "SUCCESS")
+        else:
+            formatted = self._format_message(message, "SUCCESS")
+        self.console.print(formatted)
         self.logger.info(f"SUCCESS: {message}", **kwargs)
     
     def progress(self, message: str, **kwargs) -> None:
         """Log progress message."""
-        self.console.print(f"[blue]→ {message}[/blue]")
+        # For progress, we can optionally show an arrow
+        if self.show_level:
+            formatted = self._format_message(f"→ {message}", "PROGRESS")
+        else:
+            formatted = self._format_message(message, "PROGRESS")
+        self.console.print(formatted)
         self.logger.info(f"PROGRESS: {message}", **kwargs)
     
     def log_operation_start(self, operation: str, **context) -> "CaseCraftLogger":

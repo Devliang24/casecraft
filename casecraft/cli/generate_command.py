@@ -28,7 +28,8 @@ async def generate_command(
     force: bool,
     dry_run: bool,
     organize_by: Optional[str],
-    verbose: bool
+    verbose: bool,
+    quiet: bool = False
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -43,6 +44,7 @@ async def generate_command(
         dry_run: Dry run mode
         organize_by: Organization method
         verbose: Verbose output
+        quiet: Quiet mode (warnings/errors only)
     """
     try:
         # Load configuration
@@ -54,11 +56,12 @@ async def generate_command(
         config_manager = ConfigManager()
         config_manager.validate_config(config)
         
-        # Initialize generator
-        engine = GeneratorEngine(config, console)
+        # Initialize generator with appropriate verbosity
+        engine = GeneratorEngine(config, console, verbose=verbose, quiet=quiet)
         
-        # Show model configuration
-        _show_model_config(config, verbose)
+        # Show model configuration (unless in quiet mode)
+        if not quiet:
+            _show_model_config(config, verbose)
         
         # Convert tuples to lists
         include_tags = list(include_tag) if include_tag else None
@@ -75,8 +78,9 @@ async def generate_command(
             dry_run=dry_run
         )
         
-        # Show results
-        _show_results(result, dry_run)
+        # Show results (unless in quiet mode)
+        if not quiet:
+            _show_results(result, dry_run)
         
     except ConfigError as e:
         console.print(f"[red]Configuration Error:[/red] {e}")
