@@ -181,6 +181,11 @@ The core module is organized into functional sub-packages:
 **Headers Analysis (`headers_analyzer.py`)**
 - Analyzes API endpoints for authentication requirements
 - Recommends appropriate header scenarios for testing
+- Generates environment variable style placeholders for authentication tokens:
+  - Bearer Token: `${AUTH_TOKEN}`, `${USER_TOKEN}`, `${ADMIN_TOKEN}`
+  - API Key: `${API_KEY}`
+  - Basic Auth: `${BASIC_CREDENTIALS}`
+  - Invalid tokens: `${INVALID_TOKEN}`, `${INVALID_API_KEY}`
 
 #### Generation Module (`casecraft/core/generation/`)
 **LLM Integration (`llm_client.py`)**
@@ -202,6 +207,13 @@ The core module is organized into functional sub-packages:
 - Handles secure API key storage in `~/.casecraft/config.yaml`
 - Supports environment variable overrides (`CASECRAFT_*`)
 - Configuration priority: CLI args > env vars > config file
+- Automatic `.env` file loading from current working directory
+- Environment variable mapping:
+  - `CASECRAFT_LLM_MODEL` → `llm.model`
+  - `CASECRAFT_LLM_API_KEY` → `llm.api_key`
+  - `CASECRAFT_LLM_BASE_URL` → `llm.base_url`
+  - `CASECRAFT_LLM_TIMEOUT` → `llm.timeout`
+  - `CASECRAFT_LLM_MAX_RETRIES` → `llm.max_retries`
 
 **Incremental Generation (`state_manager.py`)**
 - Tracks API changes in `.casecraft_state.json`
@@ -238,6 +250,8 @@ All data structures use Pydantic for validation:
 - `--workers N` - Worker control (BigModel only supports 1)
 - `--force` - Force regeneration of all endpoints
 - `--dry-run` - Preview mode without LLM calls
+- `--quiet`, `-q` - Quiet mode (only warnings and errors)
+- `--verbose`, `-v` - Verbose mode (includes DEBUG level logs)
 
 ## Implementation Notes
 
@@ -298,6 +312,11 @@ When making commits to this project, follow these practices:
 
 ### Recent Major Changes
 
+- **v0.4.0**: Enhanced logging and authentication placeholders (2025-08-07)
+  - Implemented automatic `.env` file loading for configuration
+  - Added `--quiet` and `--verbose` CLI options for output control
+  - Optimized terminal logging display with timestamps and level labels
+  - Updated authentication placeholders to environment variable style (`${AUTH_TOKEN}`, `${API_KEY}`, etc.)
 - **v0.3.0**: Reorganized core module into functional sub-packages (parsing, generation, management)
 - **v0.2.0**: Renamed `BigModelClient` to `LLMClient` for future extensibility
 - **v0.1.0**: Initial MVP release with BigModel GLM-4.5-X support

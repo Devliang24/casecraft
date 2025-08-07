@@ -149,13 +149,13 @@ class HeadersAnalyzer:
         auth_type = self._detect_auth_type(spec_data)
         
         if auth_type == AuthType.BEARER_TOKEN:
-            return {"Authorization": "Bearer <valid-token>"}
+            return {"Authorization": "Bearer ${AUTH_TOKEN}"}
         elif auth_type == AuthType.API_KEY:
             return self._get_api_key_headers(spec_data)
         elif auth_type == AuthType.BASIC_AUTH:
-            return {"Authorization": "Basic <credentials>"}
+            return {"Authorization": "Basic ${BASIC_CREDENTIALS}"}
         elif auth_type == AuthType.OAUTH2:
-            return {"Authorization": "Bearer <oauth-token>"}
+            return {"Authorization": "Bearer ${OAUTH_TOKEN}"}
         
         return {}
     
@@ -218,7 +218,7 @@ class HeadersAnalyzer:
             for scheme_name, scheme in schemes.items():
                 if scheme.get("type") == "apiKey" and scheme.get("in") == "header":
                     header_name = scheme.get("name", "X-API-Key")
-                    return {header_name: "<valid-api-key>"}
+                    return {header_name: "${API_KEY}"}
         
         # 检查Swagger 2.0
         if "securityDefinitions" in spec_data:
@@ -227,10 +227,10 @@ class HeadersAnalyzer:
             for def_name, definition in definitions.items():
                 if definition.get("type") == "apiKey" and definition.get("in") == "header":
                     header_name = definition.get("name", "X-API-Key")
-                    return {header_name: "<valid-api-key>"}
+                    return {header_name: "${API_KEY}"}
         
         # 默认API Key header
-        return {"X-API-Key": "<valid-api-key>"}
+        return {"X-API-Key": "${API_KEY}"}
     
     def _generate_negative_headers(self, endpoint: APIEndpoint, positive_headers: Dict[str, str], spec_data: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
         """生成负向测试的headers场景。
@@ -255,11 +255,11 @@ class HeadersAnalyzer:
             # 无效认证headers
             invalid_auth_headers = positive_headers.copy()
             if "Authorization" in invalid_auth_headers:
-                invalid_auth_headers["Authorization"] = "Bearer invalid-token"
+                invalid_auth_headers["Authorization"] = "Bearer ${INVALID_TOKEN}"
             elif any(k.startswith("X-API-Key") for k in invalid_auth_headers):
                 for k in invalid_auth_headers:
                     if k.startswith("X-API-Key"):
-                        invalid_auth_headers[k] = "invalid-key"
+                        invalid_auth_headers[k] = "${INVALID_API_KEY}"
             negative_scenarios["negative_auth_invalid"] = invalid_auth_headers
         
         # Content-Type错误场景

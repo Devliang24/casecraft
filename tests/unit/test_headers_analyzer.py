@@ -156,7 +156,7 @@ class TestHeadersAnalyzer:
         }
         
         headers = self.analyzer._get_api_key_headers(spec_data)
-        assert headers == {"X-API-Key": "<valid-api-key>"}
+        assert headers == {"X-API-Key": "${API_KEY}"}
     
     def test_get_api_key_headers_custom_name(self):
         """Test API key headers with custom header name."""
@@ -173,7 +173,7 @@ class TestHeadersAnalyzer:
         }
         
         headers = self.analyzer._get_api_key_headers(spec_data)
-        assert headers == {"Authorization": "<valid-api-key>"}
+        assert headers == {"Authorization": "${API_KEY}"}
     
     def test_analyze_headers_no_auth(self):
         """Test headers analysis for endpoint without authentication."""
@@ -224,7 +224,7 @@ class TestHeadersAnalyzer:
         expected_positive = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Authorization": "Bearer <valid-token>"
+            "Authorization": "Bearer ${AUTH_TOKEN}"
         }
         
         assert scenarios["positive"] == expected_positive
@@ -243,7 +243,7 @@ class TestHeadersAnalyzer:
         
         positive_headers = {
             "Accept": "application/json",
-            "Authorization": "Bearer <valid-token>"
+            "Authorization": "Bearer ${AUTH_TOKEN}"
         }
         
         spec_data = {
@@ -269,7 +269,7 @@ class TestHeadersAnalyzer:
         
         positive_headers = {
             "Accept": "application/json",
-            "Authorization": "Bearer <valid-token>"
+            "Authorization": "Bearer ${AUTH_TOKEN}"
         }
         
         spec_data = {
@@ -281,7 +281,7 @@ class TestHeadersAnalyzer:
         )
         
         assert "negative_auth_invalid" in negative_scenarios
-        assert negative_scenarios["negative_auth_invalid"]["Authorization"] == "Bearer invalid-token"
+        assert negative_scenarios["negative_auth_invalid"]["Authorization"] == "Bearer ${INVALID_TOKEN}"}
     
     def test_generate_negative_headers_content_type(self):
         """Test negative headers generation for wrong content type."""
@@ -418,4 +418,4 @@ class TestHeadersIntegration:
         
         # Verify invalid auth scenario has invalid token
         auth_invalid = scenarios["negative_auth_invalid"]
-        assert auth_invalid["Authorization"] == "Bearer invalid-token"
+        assert auth_invalid["Authorization"] == "Bearer ${INVALID_TOKEN}"

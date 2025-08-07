@@ -134,9 +134,9 @@ Headers设置智能规则：
    - DELETE: 添加 "Accept": "application/json"
 
 2. 基于认证要求的Headers：
-   - Bearer Token认证: 添加 "Authorization": "Bearer <valid-token>"
-   - API Key认证: 添加 "X-API-Key": "<valid-key>" 或相应header
-   - Basic Auth认证: 添加 "Authorization": "Basic <credentials>"
+   - Bearer Token认证: 添加 "Authorization": "Bearer ${AUTH_TOKEN}"
+   - API Key认证: 添加 "X-API-Key": "${API_KEY}" 或相应header
+   - Basic Auth认证: 添加 "Authorization": "Basic ${BASIC_CREDENTIALS}"
    - 无认证要求: 只添加基本的Accept/Content-Type headers
 
 3. 基于请求体类型的Headers：
