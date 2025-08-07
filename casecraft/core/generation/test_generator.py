@@ -1,6 +1,7 @@
 """Test case generator using LLM."""
 
 import json
+import asyncio
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -230,80 +231,280 @@ class TestCaseGenerator:
         return f"{method} {endpoint.path} 接口"
     
     async def generate_test_cases(self, endpoint: APIEndpoint, progress_callback: Optional[callable] = None) -> GenerationResult:
-        """Generate test cases for an API endpoint.
+        """Generate test cases for an API endpoint with intelligent retry mechanism.
         
         Args:
             endpoint: API endpoint to generate tests for
+            progress_callback: Optional callback for progress updates
             
         Returns:
             Generation result including test cases and token usage information
             
         Raises:
-            TestGeneratorError: If test generation fails
+            TestGeneratorError: If test generation fails after all retries
+        """
+        max_attempts = 3
+        last_error = None
+        total_tokens_used = 0
+        
+        for attempt in range(max_attempts):
+            try:
+                # Build prompt - use enhanced version for retries
+                if attempt > 0 and last_error:
+                    self.logger.info(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint.get_endpoint_id()}")
+                    prompt = self._build_prompt_with_retry_hints(endpoint, last_error, attempt)
+                    system_prompt = self._get_system_prompt_with_retry_emphasis()
+                else:
+                    prompt = self._build_prompt(endpoint)
+                    system_prompt = self._get_system_prompt()
+                
+                # Generate with streaming support
+                if self.llm_client.config.stream and attempt == 0:  # Only show streaming on first attempt
+                    self.logger.info(f"Using streaming mode for {endpoint.get_endpoint_id()}")
+                
+                response = await self.llm_client.generate(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    progress_callback=progress_callback if attempt == 0 else None  # Only show progress on first attempt
+                )
+                
+                # Track token usage across retries
+                if response.usage:
+                    total_tokens_used += response.usage.get("total_tokens", 0)
+                
+                # Validate response format early
+                self._validate_response_format(response.content)
+                
+                # Parse and validate LLM response
+                test_cases = self._parse_llm_response(response.content, endpoint)
+                
+                # Enhance test cases with response schemas and smart status codes
+                test_cases = self._enhance_test_cases(test_cases, endpoint)
+                
+                # Generate concise Chinese description
+                concise_description = self._generate_concise_chinese_description(endpoint)
+                
+                # Generate appropriate tags if missing
+                endpoint_tags = endpoint.tags if endpoint.tags else self._generate_default_tags(endpoint)
+                
+                # Create test case collection with metadata
+                collection = TestCaseCollection(
+                    endpoint_id=endpoint.get_endpoint_id(),
+                    method=endpoint.method,
+                    path=endpoint.path,
+                    summary=endpoint.summary,
+                    description=concise_description,
+                    tags=endpoint_tags,
+                    test_cases=test_cases
+                )
+                
+                # Set metadata at collection level
+                collection.metadata.llm_model = response.model
+                collection.metadata.api_version = self.api_version
+                
+                # Extract token usage from LLM response (use total from all attempts)
+                token_usage = None
+                if response.usage or total_tokens_used > 0:
+                    token_usage = TokenUsage(
+                        prompt_tokens=response.usage.get("prompt_tokens", 0) if response.usage else 0,
+                        completion_tokens=response.usage.get("completion_tokens", 0) if response.usage else 0,
+                        total_tokens=total_tokens_used if total_tokens_used > 0 else response.usage.get("total_tokens", 0),
+                        model=response.model,
+                        endpoint_id=endpoint.get_endpoint_id(),
+                        retry_count=attempt  # Record actual attempts made
+                    )
+                
+                # Success! Log if we needed retries
+                if attempt > 0:
+                    self.logger.info(f"Successfully generated test cases on attempt {attempt + 1} for {endpoint.get_endpoint_id()}")
+                
+                return GenerationResult(
+                    test_cases=collection,
+                    token_usage=token_usage
+                )
+                
+            except (TestGeneratorError, ValidationError, json.JSONDecodeError) as e:
+                last_error = str(e)
+                self.logger.warning(f"Attempt {attempt + 1} failed for {endpoint.get_endpoint_id()}: {e}")
+                
+                # Check if we should retry
+                if self._should_retry(e) and attempt < max_attempts - 1:
+                    self.logger.info(f"Will retry with enhanced prompt for {endpoint.get_endpoint_id()}")
+                    await asyncio.sleep(2)  # Brief delay before retry
+                    continue
+                else:
+                    # Final failure - raise the error
+                    error_msg = f"Failed to generate test cases for {endpoint.get_endpoint_id()} after {attempt + 1} attempts: {e}"
+                    self.logger.error(error_msg)
+                    raise TestGeneratorError(error_msg)
+            
+            except Exception as e:
+                # Unexpected error - don't retry
+                raise TestGeneratorError(f"Unexpected error generating test cases for {endpoint.get_endpoint_id()}: {e}")
+    
+    def _should_retry(self, error: Exception) -> bool:
+        """Determine if error is worth retrying.
+        
+        Args:
+            error: The exception that occurred
+            
+        Returns:
+            True if should retry, False otherwise
+        """
+        error_str = str(error).lower()
+        
+        # Retry for format/validation errors
+        retry_patterns = [
+            "validation error",
+            "required property",
+            "invalid json",
+            "failed to parse",
+            "test case",
+            "at least",
+            "header",
+            "instead of"
+        ]
+        
+        # Don't retry for these errors
+        no_retry_patterns = [
+            "authentication",
+            "unauthorized",
+            "api key",
+            "model not found",
+            "rate limit",
+            "quota"
+        ]
+        
+        # Check if it's a no-retry error first
+        for pattern in no_retry_patterns:
+            if pattern in error_str:
+                return False
+        
+        # Check if it's a retry-worthy error
+        for pattern in retry_patterns:
+            if pattern in error_str:
+                return True
+        
+        # Default to retry for unknown errors
+        return isinstance(error, (TestGeneratorError, ValidationError, json.JSONDecodeError))
+    
+    def _validate_response_format(self, content: str) -> None:
+        """Validate response format early to catch common errors.
+        
+        Args:
+            content: Response content from LLM
+            
+        Raises:
+            TestGeneratorError: If response format is invalid
         """
         try:
-            # Generate test cases using LLM
-            prompt = self._build_prompt(endpoint)
-            system_prompt = self._get_system_prompt()
+            # Try to parse JSON first
+            parsed = json.loads(content)
             
-            # Generate with streaming support
-            if self.llm_client.config.stream:
-                self.logger.info(f"Using streaming mode for {endpoint.get_endpoint_id()}")
+            # Check if it's a dict that looks like headers
+            if isinstance(parsed, dict) and not isinstance(parsed, list):
+                # Check for common header keys
+                header_keys = ['content-type', 'accept', 'authorization', 'user-agent']
+                if any(key.lower() in [k.lower() for k in parsed.keys()] for key in header_keys):
+                    raise TestGeneratorError(
+                        "LLM returned headers object instead of test cases array. "
+                        "Expected format: [{test_case_1}, {test_case_2}, ...]"
+                    )
+                
+                # If it's a single test case, we'll handle it in parsing
+                if 'test_id' in parsed or 'name' in parsed:
+                    self.logger.warning("Response is a single test case object, will wrap in array")
             
-            response = await self.llm_client.generate(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                progress_callback=progress_callback
-            )
+            # Check if it's an empty response
+            if not parsed:
+                raise TestGeneratorError("LLM returned empty response")
+                
+        except json.JSONDecodeError as e:
+            # Let the main parser handle this
+            self.logger.debug(f"JSON decode error in format validation: {e}")
+    
+    def _build_prompt_with_retry_hints(self, endpoint: APIEndpoint, last_error: str, attempt: int) -> str:
+        """Build enhanced prompt with retry hints based on previous error.
+        
+        Args:
+            endpoint: API endpoint
+            last_error: Error message from last attempt
+            attempt: Current attempt number
             
-            # Parse and validate LLM response
-            test_cases = self._parse_llm_response(response.content, endpoint)
-            
-            # Enhance test cases with response schemas and smart status codes
-            test_cases = self._enhance_test_cases(test_cases, endpoint)
-            
-            # Generate concise Chinese description
-            concise_description = self._generate_concise_chinese_description(endpoint)
-            
-            # Generate appropriate tags if missing
-            endpoint_tags = endpoint.tags if endpoint.tags else self._generate_default_tags(endpoint)
-            
-            # Create test case collection with metadata
-            collection = TestCaseCollection(
-                endpoint_id=endpoint.get_endpoint_id(),
-                method=endpoint.method,
-                path=endpoint.path,
-                summary=endpoint.summary,
-                description=concise_description,
-                tags=endpoint_tags,
-                test_cases=test_cases
-            )
-            
-            # Set metadata at collection level
-            collection.metadata.llm_model = response.model
-            collection.metadata.api_version = self.api_version
-            
-            # Extract token usage from LLM response
-            token_usage = None
-            if response.usage:
-                token_usage = TokenUsage(
-                    prompt_tokens=response.usage.get("prompt_tokens", 0),
-                    completion_tokens=response.usage.get("completion_tokens", 0),
-                    total_tokens=response.usage.get("total_tokens", 0),
-                    model=response.model,
-                    endpoint_id=endpoint.get_endpoint_id(),
-                    retry_count=response.retry_count
-                )
-            
-            return GenerationResult(
-                test_cases=collection,
-                token_usage=token_usage
-            )
-            
-        except Exception as e:
-            raise TestGeneratorError(
-                f"Failed to generate test cases for {endpoint.get_endpoint_id()}: {e}"
-            ) from e
+        Returns:
+            Enhanced prompt string
+        """
+        base_prompt = self._build_prompt(endpoint)
+        
+        # Analyze error to provide specific hints
+        error_hints = []
+        
+        if "required property" in last_error or "test_id" in last_error:
+            error_hints.append("每个测试用例必须包含: test_id, name, description, method, path, status, test_type")
+        
+        if "headers" in last_error.lower() and "instead of" in last_error:
+            error_hints.append("不要只返回headers，必须返回完整的测试用例数组")
+        
+        if "json" in last_error.lower():
+            error_hints.append("确保返回有效的JSON数组格式")
+        
+        if "at least" in last_error:
+            error_hints.append("需要生成更多测试用例以满足覆盖要求")
+        
+        # Build retry hint section
+        retry_hint = f"""
+
+⚠️ **重试 {attempt + 1}/3 - 上次生成失败**
+
+错误信息: {last_error[:200]}
+
+**特别注意事项:**
+{chr(10).join(f"• {hint}" for hint in error_hints)}
+
+**正确的返回格式示例:**
+```json
+[
+  {{
+    "test_id": 1,
+    "name": "成功创建用户",
+    "description": "测试正常的用户注册流程",
+    "method": "{endpoint.method}",
+    "path": "{endpoint.path}",
+    "headers": {{"Content-Type": "application/json"}},
+    "body": {{"username": "test", "password": "123456"}},
+    "status": 200,
+    "test_type": "positive"
+  }},
+  {{
+    "test_id": 2,
+    "name": "缺少必需字段",
+    "description": "测试缺少username字段的情况",
+    "method": "{endpoint.method}",
+    "path": "{endpoint.path}",
+    "headers": {{"Content-Type": "application/json"}},
+    "body": {{"password": "123456"}},
+    "status": 400,
+    "test_type": "negative"
+  }}
+]
+```
+
+请严格按照上述格式生成测试用例，确保返回JSON数组。
+"""
+        
+        return base_prompt + retry_hint
+    
+    def _get_system_prompt_with_retry_emphasis(self) -> str:
+        """Get enhanced system prompt for retry attempts."""
+        return """你是一个API用例设计测试专家。
+
+重要提醒：
+1. 必须返回JSON数组格式，即使只有一个测试用例也要用 [...] 包装
+2. 每个测试用例都必须包含所有必需字段
+3. 不要只返回headers或其他部分内容
+4. 严格遵守JSON语法，确保可以被正确解析
+
+根据提供的API规范和复杂度要求生成测试用例。"""
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
