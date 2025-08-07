@@ -582,21 +582,6 @@ class TestCaseGenerator:
 
 质量优于数量：宁可生成少一些高质量的测试用例，也不要生成大量重复或无意义的用例。
 
-Tags设置规则：
-每个测试用例必须包含有意义的tags标签，具体规则如下：
-1. 继承端点标签：从端点的tags字段继承，如["Authentication", "Products"]
-2. 测试类型标签：根据test_type添加对应标签，如["positive", "negative", "boundary"]
-3. 业务场景标签：根据测试内容添加具体场景标签，如：
-   - 用户管理: ["user-management", "registration", "login"]
-   - 数据验证: ["validation", "input-validation", "format-check"]
-   - 权限控制: ["authorization", "permission", "access-control"]
-   - 错误处理: ["error-handling", "edge-case"]
-   - 性能测试: ["performance", "load"]
-4. 示例tags组合：
-   - 正向测试: ["Authentication", "positive", "user-registration"]
-   - 负向测试: ["Authentication", "negative", "validation", "input-validation"]
-   - 边界测试: ["Authentication", "boundary", "edge-case"]
-
 Headers设置智能规则：
 1. 基于HTTP方法的Headers：
    - GET: 添加 "Accept": "application/json"
@@ -649,8 +634,7 @@ Headers设置智能规则：
 - 每个测试用例必须包含完整的预期验证信息：
   * resp_headers: 响应头验证
   * resp_content: 响应内容断言
-  * rules: 业务逻辑验证规则
-  * tags: 基于上述规则生成的有意义标签数组（绝不为空）"""
+  * rules: 业务逻辑验证规则"""
     
     def _build_prompt(self, endpoint: APIEndpoint) -> str:
         """Build prompt for test case generation.
@@ -965,11 +949,6 @@ Return the test cases as a JSON array:"""
                     "enum": ["positive", "negative", "boundary"],
                     "description": "Test case type"
                 },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Test tags"
-                },
                 "resp_headers": {
                     "type": "object",
                     "description": "Expected response headers"
@@ -1030,9 +1009,6 @@ Return the test cases as a JSON array:"""
             # Improve status codes based on test type and error
             if test_case.test_type == TestType.NEGATIVE:
                 test_case.status = self._infer_status_code(test_case, endpoint)
-            
-            # Ensure test case has meaningful tags
-            test_case.tags = self._generate_test_case_tags(test_case, endpoint)
         
         return test_cases
     
@@ -1446,89 +1422,3 @@ Return the test cases as a JSON array:"""
         
         return rules
     
-    def _generate_test_case_tags(self, test_case: TestCase, endpoint: APIEndpoint) -> List[str]:
-        """Generate meaningful tags for a test case.
-        
-        Args:
-            test_case: Test case to generate tags for
-            endpoint: API endpoint context
-            
-        Returns:
-            List of meaningful tags
-        """
-        tags = set()
-        
-        # 1. Inherit endpoint tags (normalize to lowercase)
-        if endpoint.tags:
-            tags.update([tag.lower() for tag in endpoint.tags])
-        
-        # 2. Add test type tag
-        if hasattr(test_case.test_type, 'value'):
-            tags.add(test_case.test_type.value)  # positive, negative, boundary
-        else:
-            tags.add(str(test_case.test_type).lower())  # fallback for string values
-        
-        # 3. Add business scenario tags based on endpoint path and description
-        path_lower = endpoint.path.lower()
-        desc_lower = (test_case.description or "").lower()
-        name_lower = (test_case.name or "").lower()
-        endpoint_desc = (endpoint.description or "").lower()
-        
-        # User management related
-        if any(word in path_lower for word in ["auth", "user", "login", "register"]):
-            if "register" in path_lower or "register" in desc_lower:
-                tags.add("user-registration")
-            if "login" in path_lower or "login" in desc_lower:
-                tags.add("user-login")
-            if "user" in path_lower:
-                tags.add("user-management")
-        
-        # Product/Category management
-        if "product" in path_lower:
-            tags.add("product-management")
-        if "category" in path_lower:
-            tags.add("category-management")
-        
-        # Shopping cart
-        if "cart" in path_lower:
-            tags.add("shopping-cart")
-        
-        # Orders
-        if "order" in path_lower:
-            tags.add("order-management")
-        
-        # 4. Add validation related tags
-        if any(word in desc_lower + name_lower for word in ["validation", "invalid", "missing", "required", "format"]):
-            tags.add("validation")
-            if any(word in desc_lower + name_lower for word in ["email", "format", "type"]):
-                tags.add("input-validation")
-        
-        # 5. Add authentication/authorization tags
-        if any(word in desc_lower + name_lower for word in ["unauthorized", "forbidden", "permission", "access"]):
-            tags.add("access-control")
-        
-        # 6. Add error handling tags for negative tests
-        if test_case.test_type == TestType.NEGATIVE:
-            tags.add("error-handling")
-            
-            # Specific error types
-            if any(word in desc_lower + name_lower for word in ["not found", "nonexistent", "doesn't exist"]):
-                tags.add("resource-not-found")
-            elif any(word in desc_lower + name_lower for word in ["duplicate", "exist", "unique"]):
-                tags.add("duplicate-handling")
-            elif any(word in desc_lower + name_lower for word in ["weak", "password", "security"]):
-                tags.add("security-validation")
-        
-        # 7. Add boundary/edge case tags
-        if test_case.test_type == TestType.BOUNDARY:
-            tags.add("edge-case")
-            if any(word in desc_lower + name_lower for word in ["boundary", "limit", "maximum", "minimum"]):
-                tags.add("boundary-testing")
-        
-        # 8. HTTP method specific tags
-        if endpoint.method in ["POST", "PUT", "PATCH"]:
-            if test_case.test_type == TestType.POSITIVE:
-                tags.add("data-creation" if endpoint.method == "POST" else "data-modification")
-        
-        # Convert back to list and sort for consistency
-        return sorted(list(tags))

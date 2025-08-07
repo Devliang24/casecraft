@@ -49,7 +49,6 @@ class TestCase(BaseModel):
         default_factory=list, description="Business logic validation rules"
     )
     test_type: TestType = Field(..., description="Test type: positive/negative/boundary")
-    tags: List[str] = Field(default_factory=list, description="Test tag list")
 
     def model_dump(self, **kwargs):
         """Custom model dump to exclude None and empty dict parameters."""
