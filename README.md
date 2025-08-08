@@ -1,8 +1,16 @@
 # CaseCraft
 
-使用 BigModel LLM 解析 API 文档（OpenAPI/Swagger）并生成结构化测试用例的 CLI 工具。
+使用多个 LLM 提供商解析 API 文档（OpenAPI/Swagger）并生成结构化测试用例的 CLI 工具。
 
-## 🆕 最新更新 (2025-08-05)
+## 🆕 最新更新 (2025-08-08)
+
+- **多 LLM 提供商支持**: 支持 GLM（智谱）、Qwen（通义千问）、Kimi（Moonshot）和本地模型
+- **灵活的提供商策略**: 支持轮询、随机、复杂度和手动映射等多种分配策略
+- **自动故障转移**: 当一个提供商失败时自动切换到备用提供商
+- **并发执行优化**: 不同提供商并发处理，显著提升生成速度
+- **统一配置管理**: 通过环境变量或命令行参数灵活配置多个提供商
+
+## 🎉 之前更新 (2025-08-05)
 
 - **智能动态生成**: 根据 API 接口复杂度自动调整测试用例数量（5-12个）
 - **质量优先**: 强调生成有意义的测试用例，避免为凑数而生成冗余用例
@@ -10,13 +18,15 @@
 
 ## 核心特性
 
-- 🎯 **智能测试用例生成**: 利用 BigModel GLM-4.5-X 自动生成全面的测试场景
+- 🎯 **智能测试用例生成**: 支持多个 LLM 提供商（GLM、Qwen、Kimi等）自动生成全面的测试场景
+- 🤖 **多提供商支持**: 灵活切换和组合使用不同的 LLM 提供商
 - 📊 **动态用例数量**: 根据接口复杂度智能调整生成数量（简单5-6个，复杂10-12个）
 - 📚 **多格式支持**: 支持 OpenAPI 3.0 和 Swagger 2.0 (JSON/YAML)
 - 🔄 **增量生成**: 只为变更的 API 生成新测试，节省时间和成本
-- ⚡ **并发处理**: 支持多线程处理，可通过 `--workers` 参数调整（BigModel 目前限制为 1）
+- ⚡ **并发处理**: 支持多提供商并发执行，显著提升生成速度
 - 🎨 **灵活输出**: 支持 JSON 格式，未来支持 pytest、jest 等
 - 🌏 **双语支持**: 完美支持中文和英文文档及测试用例
+- 🔀 **智能故障转移**: 自动切换失败的提供商，确保生成成功率
 
 ## 快速开始
 
@@ -39,17 +49,23 @@ casecraft init
 ### 生成测试用例
 
 ```bash
-# 从 URL 生成
-casecraft generate https://petstore.swagger.io/v2/swagger.json
+# 使用单个提供商
+casecraft generate api.json --provider glm
 
-# 从本地文件生成
-casecraft generate ./api-docs.yaml
+# 使用多个提供商并发
+casecraft generate api.json --providers glm,qwen,kimi
+
+# 手动映射提供商到特定端点
+casecraft generate api.json --provider-map "/users:qwen,/products:glm"
+
+# 从 URL 生成
+casecraft generate https://petstore.swagger.io/v2/swagger.json --provider glm
 
 # 使用过滤器
-casecraft generate ./openapi.json --include-tag users --exclude-tag admin
+casecraft generate ./openapi.json --include-tag users --exclude-tag admin --provider qwen
 
-# 指定并发数（未来支持其他 LLM 时可用）
-casecraft generate ./api.yaml --workers 4
+# 指定并发数
+casecraft generate ./api.yaml --workers 4 --providers glm,qwen
 
 # 预览模式（不调用 LLM）
 casecraft generate ./api.yaml --dry-run
@@ -70,10 +86,15 @@ casecraft generate ./api.yaml --dry-run
 
 **选项:**
 - `--output, -o`: 输出目录（默认：`test_cases`）
+- `--provider`: 使用单个 LLM 提供商 (glm/qwen/kimi/local)
+- `--providers`: 使用多个提供商，逗号分隔
+- `--provider-map`: 手动映射端点到提供商
+- `--strategy`: 提供商分配策略 (round_robin/random/complexity/manual)
+- `--model`: 指定具体模型（如 glm-4.5-airx）
 - `--include-tag`: 只包含指定标签的端点
 - `--exclude-tag`: 排除指定标签的端点
 - `--include-path`: 只包含匹配模式的路径
-- `--workers, -w`: 并发工作线程数（默认：1，BigModel 只支持 1）
+- `--workers, -w`: 并发工作线程数
 - `--force`: 强制重新生成所有测试用例
 - `--dry-run`: 预览模式，不调用 LLM
 - `--organize-by`: 按标签组织输出文件
@@ -102,14 +123,31 @@ processing:
 
 ### 环境变量配置
 
-支持通过环境变量配置 API 密钥：
+支持通过环境变量配置多个提供商：
 
 ```bash
-# BigModel API
-export BIGMODEL_API_KEY="your-api-key"
+# 指定要使用的提供商
+export CASECRAFT_PROVIDER=glm  # 单个提供商
+export CASECRAFT_PROVIDERS=glm,qwen,kimi  # 多个提供商
 
-# 或使用通用环境变量
-export CASECRAFT_LLM_API_KEY="your-api-key"
+# GLM (智谱) 配置
+export CASECRAFT_GLM_MODEL=glm-4.5-airx
+export CASECRAFT_GLM_API_KEY="your-glm-api-key"
+export CASECRAFT_GLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+
+# Qwen (通义千问) 配置
+export CASECRAFT_QWEN_MODEL=qwen-max
+export CASECRAFT_QWEN_API_KEY="your-qwen-api-key"
+export CASECRAFT_QWEN_BASE_URL="https://dashscope.aliyuncs.com/api/v1"
+
+# Kimi (Moonshot) 配置
+export CASECRAFT_KIMI_MODEL=moonshot-v1-8k
+export CASECRAFT_KIMI_API_KEY="your-kimi-api-key"
+export CASECRAFT_KIMI_BASE_URL="https://api.moonshot.cn/v1"
+
+# 或使用 .env 文件（推荐）
+cp .env.example .env
+# 编辑 .env 文件填写您的 API 密钥
 ```
 
 ## 输出格式
@@ -236,10 +274,21 @@ mypy casecraft
 
 MIT License - 详见 [LICENSE](LICENSE) 文件。
 
+## 支持的 LLM 提供商
+
+| 提供商 | 模型示例 | 并发数 | 特点 |
+|--------|----------|--------|------|
+| **GLM** (智谱) | glm-4.5-x, glm-4.5-airx | 1 | 高质量生成，支持思考模式 |
+| **Qwen** (通义千问) | qwen-max, qwen-plus | 3 | 快速响应，成本较低 |
+| **Kimi** (Moonshot) | moonshot-v1-8k/32k/128k | 2 | 长上下文支持 |
+| **Local** (Ollama/vLLM) | llama2, mistral | 可配置 | 本地部署，无成本 |
+
 ## 路线图
 
 - [x] ~~智能动态测试用例生成（已完成）~~
 - [x] ~~接口复杂度自动评估（已完成）~~
+- [x] ~~支持多个 LLM 提供商（GLM、Qwen、Kimi）（已完成）~~
+- [x] ~~自动故障转移和负载均衡（已完成）~~
 - [ ] 直接生成可执行测试代码（pytest、jest）
 - [ ] 支持 Postman Collection 导出
 - [ ] 交互式 TUI 界面
