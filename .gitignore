@@ -51,6 +51,9 @@ cover/
 
 # Virtual environments
 .env
+.env.test
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -68,7 +71,9 @@ venv.bak/
 
 # Project specific
 .casecraft_state.json
+.casecraft_provider_stats.json
 test_cases/
+test_output/
 *.log
 *.tmp
 *.bak
