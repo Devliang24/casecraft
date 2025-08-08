@@ -72,7 +72,8 @@ venv.bak/
 # Project specific
 .casecraft_state.json
 .casecraft_provider_stats.json
-test_cases/
+test_cases/*
+!test_cases/.gitkeep
 test_output/
 *.log
 *.tmp
