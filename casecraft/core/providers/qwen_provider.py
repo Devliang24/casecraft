@@ -77,17 +77,14 @@ class QwenProvider(LLMProvider):
             messages.append({"role": "user", "content": prompt})
             
             # Qwen API payload format
+            # OpenAI compatible format
             payload = {
                 "model": self.config.model,  # e.g., "qwen-max", "qwen-plus", "qwen-turbo"
-                "input": {
-                    "messages": messages
-                },
-                "parameters": {
-                    "temperature": kwargs.get("temperature", self.config.temperature),
-                    "top_p": kwargs.get("top_p", 0.9),
-                    "max_tokens": kwargs.get("max_tokens", 2000),
-                    "stream": self.config.stream
-                }
+                "messages": messages,  # Direct messages, not nested in input
+                "temperature": kwargs.get("temperature", self.config.temperature),
+                "top_p": kwargs.get("top_p", 0.9),
+                "max_tokens": kwargs.get("max_tokens", 2000),
+                "stream": self.config.stream
             }
             
             self.logger.debug(f"Qwen request - Model: {self.config.model}, Messages: {len(messages)}")
@@ -124,9 +121,9 @@ class QwenProvider(LLMProvider):
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
-        # Make request
+        # Make request to OpenAI compatible endpoint
         response, retry_count = await self._make_request_with_retry(
-            "/services/aigc/text-generation/generation",
+            "/chat/completions",
             payload,
             progress_callback
         )
@@ -139,16 +136,24 @@ class QwenProvider(LLMProvider):
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
-        # Parse response
-        output = response.get("output", {})
+        # Parse OpenAI format response
+        choices = response.get("choices", [])
         usage = response.get("usage", {})
         
-        # Create token usage
+        # Extract content from first choice
+        content = ""
+        finish_reason = None
+        if choices:
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            finish_reason = choices[0].get("finish_reason")
+        
+        # Create token usage (OpenAI format)
         token_usage = None
         if usage:
             token_usage = TokenUsage(
-                prompt_tokens=usage.get("input_tokens", 0),
-                completion_tokens=usage.get("output_tokens", 0),
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
                 total_tokens=usage.get("total_tokens", 0),
                 model=self.config.model
             )
@@ -161,14 +166,14 @@ class QwenProvider(LLMProvider):
                 self.logger.warning(f"Progress callback error: {e}")
         
         return LLMResponse(
-            content=output.get("text", ""),
+            content=content,
             provider=self.name,
             model=self.config.model,
             token_usage=token_usage,
             metadata={
-                "finish_reason": output.get("finish_reason"),
+                "finish_reason": finish_reason,
                 "retry_count": retry_count,
-                "request_id": response.get("request_id")
+                "request_id": response.get("id")
             }
         )
     
@@ -186,8 +191,7 @@ class QwenProvider(LLMProvider):
         Returns:
             LLM response
         """
-        # Enable SSE for streaming
-        payload["parameters"]["incremental_output"] = True
+        # Streaming is enabled in the payload already
         
         content_chunks = []
         token_usage = None
@@ -201,7 +205,7 @@ class QwenProvider(LLMProvider):
             
             async with self.client.stream(
                 "POST",
-                "/services/aigc/text-generation/generation",
+                "/chat/completions",
                 json=payload,
                 headers=headers
             ) as response:
@@ -221,34 +225,36 @@ class QwenProvider(LLMProvider):
                         try:
                             data = json.loads(data_str)
                             
-                            # Extract content
-                            output = data.get("output", {})
-                            if "text" in output:
-                                # In streaming mode, each message contains incremental text
-                                content_chunks.append(output["text"])
+                            # Extract content from OpenAI format
+                            choices = data.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                if "content" in delta:
+                                    # In streaming mode, each message contains incremental text
+                                    content_chunks.append(delta["content"])
+                                    
+                                    # Update progress
+                                    if progress_callback:
+                                        progress = 0.2 + min(len(content_chunks) / 100, 0.7)
+                                        progress_callback(progress)
                                 
-                                # Update progress
-                                if progress_callback:
-                                    progress = 0.2 + min(len(content_chunks) / 100, 0.7)
-                                    progress_callback(progress)
+                                # Get finish reason from last message
+                                if choices[0].get("finish_reason"):
+                                    finish_reason = choices[0]["finish_reason"]
                             
-                            # Get finish reason from last message
-                            if output.get("finish_reason"):
-                                finish_reason = output["finish_reason"]
-                            
-                            # Get usage data
+                            # Get usage data (OpenAI format)
                             if "usage" in data:
                                 usage_data = data["usage"]
                                 token_usage = TokenUsage(
-                                    prompt_tokens=usage_data.get("input_tokens", 0),
-                                    completion_tokens=usage_data.get("output_tokens", 0),
+                                    prompt_tokens=usage_data.get("prompt_tokens", 0),
+                                    completion_tokens=usage_data.get("completion_tokens", 0),
                                     total_tokens=usage_data.get("total_tokens", 0),
                                     model=self.config.model
                                 )
                             
                             # Get request ID
-                            if "request_id" in data:
-                                request_id = data["request_id"]
+                            if "id" in data:
+                                request_id = data["id"]
                                 
                         except json.JSONDecodeError:
                             self.logger.warning(f"Failed to parse SSE data: {data_str}")

@@ -142,9 +142,10 @@ class TokenStatistics:
 class CostCalculator:
     """Calculate costs based on token usage and pricing."""
     
-    # BigModel GLM-4.5-X pricing (2025年最新定价)
+    # Multi-provider pricing (2025年最新定价)
     # 价格单位：USD per 1M tokens
     PRICING = {
+        # BigModel GLM models
         "glm-4.5-x": {
             "input": Decimal("0.50"),   # $0.50 per 1M input tokens
             "output": Decimal("2.00")   # $2.00 per 1M output tokens  
@@ -152,6 +153,60 @@ class CostCalculator:
         "glm-4.5-air": {
             "input": Decimal("0.14"),   # $0.14 per 1M input tokens
             "output": Decimal("0.86")   # $0.86 per 1M output tokens
+        },
+        "glm-4.5-airx": {
+            "input": Decimal("0.10"),   # $0.10 per 1M input tokens (estimated)
+            "output": Decimal("0.50")   # $0.50 per 1M output tokens (estimated)
+        },
+        "glm-4-flash": {
+            "input": Decimal("0.05"),   # $0.05 per 1M input tokens (estimated)
+            "output": Decimal("0.15")   # $0.15 per 1M output tokens (estimated)
+        },
+        
+        # Alibaba Qwen models
+        "qwen-plus": {
+            "input": Decimal("0.30"),   # $0.30 per 1M input tokens (estimated)
+            "output": Decimal("1.20")   # $1.20 per 1M output tokens (estimated)
+        },
+        "qwen-turbo": {
+            "input": Decimal("0.20"),   # $0.20 per 1M input tokens (estimated)
+            "output": Decimal("0.80")   # $0.80 per 1M output tokens (estimated)
+        },
+        "qwen-max": {
+            "input": Decimal("0.50"),   # $0.50 per 1M input tokens (estimated)
+            "output": Decimal("2.00")   # $2.00 per 1M output tokens (estimated)
+        },
+        
+        # Moonshot Kimi models
+        "moonshot-v1-8k": {
+            "input": Decimal("0.20"),   # $0.20 per 1M input tokens (estimated)
+            "output": Decimal("0.80")   # $0.80 per 1M output tokens (estimated)
+        },
+        "moonshot-v1-32k": {
+            "input": Decimal("0.35"),   # $0.35 per 1M input tokens (estimated)
+            "output": Decimal("1.40")   # $1.40 per 1M output tokens (estimated)
+        },
+        "moonshot-v1-128k": {
+            "input": Decimal("0.60"),   # $0.60 per 1M input tokens (estimated)
+            "output": Decimal("2.40")   # $2.40 per 1M output tokens (estimated)
+        },
+        "kimi-k2-turbo-preview": {
+            "input": Decimal("0.25"),   # $0.25 per 1M input tokens (estimated)
+            "output": Decimal("1.00")   # $1.00 per 1M output tokens (estimated)
+        },
+        "kimi-k2-0711-preview": {
+            "input": Decimal("0.30"),   # $0.30 per 1M input tokens (estimated)
+            "output": Decimal("1.20")   # $1.20 per 1M output tokens (estimated)
+        },
+        
+        # Local deployment (customizable)
+        "local": {
+            "input": Decimal("0.00"),   # Free for local deployment
+            "output": Decimal("0.00")   # Free for local deployment
+        },
+        "local-custom": {
+            "input": Decimal("0.10"),   # Custom pricing for local deployment
+            "output": Decimal("0.40")   # Custom pricing for local deployment
         }
     }
     
@@ -175,12 +230,54 @@ class CostCalculator:
             # No model specified, cannot calculate cost
             return Decimal(0)
         
-        # Normalize model name
-        if "glm-4.5" in model_name.lower():
-            if "air" in model_name.lower():
+        # Normalize model name and find pricing
+        model_lower = model_name.lower()
+        
+        # Direct match first
+        if model_name in cls.PRICING:
+            pricing_key = model_name
+        # GLM models
+        elif "glm" in model_lower:
+            if "4.5-airx" in model_lower or "4-5-airx" in model_lower:
+                pricing_key = "glm-4.5-airx"
+            elif "4.5-air" in model_lower or "4-5-air" in model_lower:
                 pricing_key = "glm-4.5-air"
-            else:
+            elif "4.5-x" in model_lower or "4-5-x" in model_lower:
                 pricing_key = "glm-4.5-x"
+            elif "flash" in model_lower:
+                pricing_key = "glm-4-flash"
+            else:
+                pricing_key = "glm-4.5-x"  # Default GLM pricing
+        # Qwen models
+        elif "qwen" in model_lower:
+            if "plus" in model_lower:
+                pricing_key = "qwen-plus"
+            elif "turbo" in model_lower:
+                pricing_key = "qwen-turbo"
+            elif "max" in model_lower:
+                pricing_key = "qwen-max"
+            else:
+                pricing_key = "qwen-plus"  # Default Qwen pricing
+        # Kimi/Moonshot models
+        elif "kimi" in model_lower or "moonshot" in model_lower:
+            if "k2-turbo" in model_lower:
+                pricing_key = "kimi-k2-turbo-preview"
+            elif "k2-0711" in model_lower:
+                pricing_key = "kimi-k2-0711-preview"
+            elif "128k" in model_lower:
+                pricing_key = "moonshot-v1-128k"
+            elif "32k" in model_lower:
+                pricing_key = "moonshot-v1-32k"
+            elif "8k" in model_lower:
+                pricing_key = "moonshot-v1-8k"
+            else:
+                pricing_key = "moonshot-v1-32k"  # Default Kimi pricing
+        # Local models
+        elif "local" in model_lower:
+            if "custom" in model_lower:
+                pricing_key = "local-custom"
+            else:
+                pricing_key = "local"
         else:
             # Unknown model format, cannot determine pricing
             return Decimal(0)
@@ -250,12 +347,54 @@ class CostCalculator:
                 "note": "Model not specified"
             }
         
-        # Normalize model name
-        if "glm-4.5" in model.lower():
-            if "air" in model.lower():
+        # Normalize model name and find pricing
+        model_lower = model.lower()
+        
+        # Direct match first
+        if model in cls.PRICING:
+            pricing_key = model
+        # GLM models
+        elif "glm" in model_lower:
+            if "4.5-airx" in model_lower or "4-5-airx" in model_lower:
+                pricing_key = "glm-4.5-airx"
+            elif "4.5-air" in model_lower or "4-5-air" in model_lower:
                 pricing_key = "glm-4.5-air"
+            elif "4.5-x" in model_lower or "4-5-x" in model_lower:
+                pricing_key = "glm-4.5-x"
+            elif "flash" in model_lower:
+                pricing_key = "glm-4-flash"
             else:
                 pricing_key = "glm-4.5-x"
+        # Qwen models
+        elif "qwen" in model_lower:
+            if "plus" in model_lower:
+                pricing_key = "qwen-plus"
+            elif "turbo" in model_lower:
+                pricing_key = "qwen-turbo"
+            elif "max" in model_lower:
+                pricing_key = "qwen-max"
+            else:
+                pricing_key = "qwen-plus"
+        # Kimi/Moonshot models
+        elif "kimi" in model_lower or "moonshot" in model_lower:
+            if "k2-turbo" in model_lower:
+                pricing_key = "kimi-k2-turbo-preview"
+            elif "k2-0711" in model_lower:
+                pricing_key = "kimi-k2-0711-preview"
+            elif "128k" in model_lower:
+                pricing_key = "moonshot-v1-128k"
+            elif "32k" in model_lower:
+                pricing_key = "moonshot-v1-32k"
+            elif "8k" in model_lower:
+                pricing_key = "moonshot-v1-8k"
+            else:
+                pricing_key = "moonshot-v1-32k"
+        # Local models
+        elif "local" in model_lower:
+            if "custom" in model_lower:
+                pricing_key = "local-custom"
+            else:
+                pricing_key = "local"
         else:
             return {
                 "input": "N/A",

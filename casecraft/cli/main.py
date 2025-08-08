@@ -123,6 +123,10 @@ def init() -> None:
     default="round_robin",
     help="Provider assignment strategy (used with --providers)"
 )
+@click.option(
+    "--model", "-m",
+    help="Specify model for the provider (e.g., glm-4-flash, qwen-plus)"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -139,6 +143,7 @@ def generate(
     providers: str,
     provider_map: str,
     strategy: str,
+    model: str,
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -184,7 +189,8 @@ def generate(
         provider=provider,
         providers=providers,
         provider_map=provider_map,
-        strategy=strategy
+        strategy=strategy,
+        model=model
     )
 
 

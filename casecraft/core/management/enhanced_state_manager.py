@@ -76,7 +76,8 @@ class EnhancedStateManager(StateManager):
         # Save provider statistics
         stats_file = self.state_file_path.parent / ".casecraft_provider_stats.json"
         try:
-            stats_json = self.provider_stats.json(indent=2)
+            # Use model_dump_json() for Pydantic v2 compatibility
+            stats_json = self.provider_stats.model_dump_json(indent=2)
             async with aiofiles.open(stats_file, 'w') as f:
                 await f.write(stats_json)
         except Exception as e:
@@ -188,7 +189,7 @@ class EnhancedStateManager(StateManager):
                 "total_tokens": perf.total_tokens
             }
         
-        # Add cost summary
+        # Add cost summary (using simple estimates from provider stats)
         cost_summary = self.provider_stats.get_cost_summary()
         
         # Add fallback statistics
@@ -235,16 +236,16 @@ class EnhancedStateManager(StateManager):
                 print(f"    • Avg Tokens: {stats['avg_tokens']}")
         
         # Cost summary
-        if summary.get("costs"):
-            costs = summary["costs"]
-            print(f"\n💰 Cost Estimates:")
-            print(f"  • Total Tokens: {costs.get('total_tokens', 0):,}")
-            print(f"  • Estimated Cost: ${costs.get('total_cost_usd', 0):.4f}")
-            
-            if costs.get("by_provider"):
-                print("  • By Provider:")
-                for provider, cost_data in costs["by_provider"].items():
-                    print(f"    - {provider}: ${cost_data['cost']:.4f} ({cost_data['tokens']:,} tokens)")
+        # Token summary
+        if summary.get("providers"):
+            total_tokens = sum(perf["total_tokens"] for perf in summary["providers"].values())
+            if total_tokens > 0:
+                print(f"\n📊 Token Usage:")
+                print(f"  • Total Tokens: {total_tokens:,}")
+                if len(summary["providers"]) > 1:
+                    print("  • By Provider:")
+                    for provider, stats in summary["providers"].items():
+                        print(f"    - {provider}: {stats['total_tokens']:,} tokens")
         
         # Fallback statistics
         if summary.get("fallbacks"):

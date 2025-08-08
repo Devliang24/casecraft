@@ -425,11 +425,36 @@ class KimiProvider(LLMProvider):
             self._test_generator = TestCaseGenerator(llm_client)
         
         # Generate test cases
-        result = await self._test_generator.generate_test_cases(
-            endpoint,
-            progress_callback=progress_callback
-        )
+        max_retries = 2  # Allow up to 2 retries if not enough test cases
+        for retry in range(max_retries + 1):
+            result = await self._test_generator.generate_test_cases(
+                endpoint,
+                progress_callback=progress_callback
+            )
+            
+            # Check if we have minimum required test cases
+            test_count = len(result.test_cases.test_cases) if hasattr(result.test_cases, 'test_cases') else 0
+            
+            if test_count >= 5:
+                # Sufficient test cases generated
+                return result.test_cases, result.token_usage
+            elif retry < max_retries:
+                # Not enough test cases, log warning and retry
+                self.logger.warning(
+                    f"Kimi generated only {test_count} test cases for {endpoint.get_endpoint_id()}, "
+                    f"minimum 5 required. Retrying ({retry + 1}/{max_retries})..."
+                )
+                # Add a small delay before retry
+                await asyncio.sleep(2)
+            else:
+                # Final attempt still insufficient, log error but return what we have
+                self.logger.error(
+                    f"Kimi could only generate {test_count} test cases for {endpoint.get_endpoint_id()} "
+                    f"after {max_retries} retries. Minimum 5 required. Proceeding with partial results."
+                )
+                return result.test_cases, result.token_usage
         
+        # Fallback (should not reach here)
         return result.test_cases, result.token_usage
     
     def get_max_workers(self) -> int:

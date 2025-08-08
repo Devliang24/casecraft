@@ -3,6 +3,7 @@
 import asyncio
 from typing import Dict, List, Optional, Any
 import logging
+from pathlib import Path
 
 from casecraft.core.providers.registry import ProviderRegistry
 from casecraft.core.providers.base import LLMProvider
@@ -14,6 +15,8 @@ from casecraft.core.providers.strategies.round_robin import RoundRobinStrategy
 from casecraft.core.providers.strategies.random_strategy import RandomStrategy
 from casecraft.core.providers.strategies.complexity_strategy import ComplexityBasedStrategy
 from casecraft.core.providers.fallback import FallbackHandler
+from casecraft.core.management.output_manager import OutputManager
+from casecraft.models.test_case import TestCaseCollection
 
 
 class GenerationResult:
@@ -25,21 +28,30 @@ class GenerationResult:
         self.provider_usage: Dict[str, int] = {}
         self.total_tokens: int = 0
         self.errors: List[str] = []
+        self.generated_files: List[Path] = []
 
 
 class MultiProviderEngine:
     """Multi-provider concurrent execution engine."""
     
-    def __init__(self, config: MultiProviderConfig):
+    def __init__(self, config: MultiProviderConfig, output_dir: str = "test_cases", state_manager=None):
         """Initialize multi-provider engine.
         
         Args:
             config: Multi-provider configuration
+            output_dir: Output directory for test cases
+            state_manager: Optional state manager for tracking generation state
         """
         self.config = config
         self.registry = ProviderRegistry()
         self.logger = logging.getLogger("engine.multi_provider")
         self.fallback_handler = FallbackHandler(config) if config.fallback_enabled else None
+        self.state_manager = state_manager
+        
+        # Initialize output manager
+        from casecraft.models.config import OutputConfig
+        output_config = OutputConfig(directory=output_dir)
+        self.output_manager = OutputManager(output_config)
         
         # Initialize strategy
         self.strategy = self._create_strategy()
@@ -116,7 +128,22 @@ class MultiProviderEngine:
         result = GenerationResult()
         
         # Assign providers to endpoints
-        if not provider_assignments:
+        if provider_assignments:
+            # Use manual assignments, but need to map paths to endpoint IDs
+            mapped_assignments = {}
+            for endpoint in endpoints:
+                endpoint_id = endpoint.get_endpoint_id()
+                # Check if path matches any mapping
+                for path_pattern, provider in provider_assignments.items():
+                    if path_pattern in endpoint.path:
+                        mapped_assignments[endpoint_id] = provider
+                        break
+                # If no mapping found, use strategy
+                if endpoint_id not in mapped_assignments:
+                    provider = self.strategy.get_next_provider(endpoint)
+                    mapped_assignments[endpoint_id] = provider
+            provider_assignments = mapped_assignments
+        else:
             provider_assignments = self._assign_providers(endpoints)
         
         # Group endpoints by provider
@@ -225,6 +252,10 @@ class MultiProviderEngine:
                         # Direct generation
                         test_cases, token_usage = await provider.generate_test_cases(endpoint)
                     
+                    # Save test cases to file
+                    output_file = await self.output_manager.save_test_cases(test_cases)
+                    result.generated_files.append(output_file)
+                    
                     # Update result
                     result.successful_endpoints.append(endpoint_id)
                     
@@ -238,12 +269,39 @@ class MultiProviderEngine:
                     if token_usage:
                         result.total_tokens += token_usage.total_tokens
                     
+                    # Update state manager if available
+                    if self.state_manager:
+                        test_cases_count = len(test_cases.test_cases) if hasattr(test_cases, 'test_cases') else 5
+                        await self.state_manager.mark_endpoint_generated(
+                            endpoint=endpoint,
+                            test_cases_count=test_cases_count,
+                            output_file=str(output_file),
+                            provider_used=provider_name,
+                            tokens_used=token_usage.total_tokens if token_usage else 0
+                        )
+                        
+                        self.state_manager.complete_provider_request(
+                            provider=provider_name,
+                            endpoint_id=endpoint_id,
+                            success=True,
+                            tokens=token_usage.total_tokens if token_usage else 0
+                        )
+                    
                     self.logger.info(f"Generated test cases for {endpoint_id} using {provider.name}")
                     
                 except Exception as e:
                     self.logger.error(f"Failed to generate for {endpoint_id}: {e}")
                     result.failed_endpoints.append(endpoint_id)
                     result.errors.append(f"{endpoint_id}: {e}")
+                    
+                    # Update state manager for failure if available
+                    if self.state_manager:
+                        self.state_manager.complete_provider_request(
+                            provider=provider.name,
+                            endpoint_id=endpoint_id,
+                            success=False,
+                            error_type=str(type(e).__name__)
+                        )
         
         # Create tasks for all endpoints
         tasks = [generate_with_semaphore(endpoint) for endpoint in endpoints]
