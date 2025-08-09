@@ -763,7 +763,7 @@ async def _load_multi_provider_config(
 
 def _show_single_provider_config(provider: str, config: CaseCraftConfig, verbose: bool) -> None:
     """Show single provider configuration."""
-    console.print(f"\n[bold blue]━━━━━━ 🚀 {provider.upper()} Provider Config ━━━━━━[/bold blue]")
+    console.print(f"\n[bold blue]━━━━━━ 🚀 LLM Provider Config ━━━━━━[/bold blue]")
     
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column(width=2, justify="left")
