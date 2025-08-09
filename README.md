@@ -48,6 +48,8 @@ casecraft init
 
 ### 生成测试用例
 
+#### 基础示例
+
 ```bash
 # 使用单个提供商
 casecraft generate api.json --provider glm
@@ -64,11 +66,91 @@ casecraft generate https://petstore.swagger.io/v2/swagger.json --provider glm
 # 使用过滤器
 casecraft generate ./openapi.json --include-tag users --exclude-tag admin --provider qwen
 
-# 指定并发数
-casecraft generate ./api.yaml --workers 4 --providers glm,qwen
-
 # 预览模式（不调用 LLM）
 casecraft generate ./api.yaml --dry-run
+```
+
+#### 完整实战示例
+
+```bash
+# 1. 使用千问处理单个端点（使用 --workers 1）
+casecraft generate ecommerce_api_openapi.json \
+  --provider qwen \
+  --include-path "/api/v1/auth/register" \
+  --workers 1 \
+  --force
+
+# 2. 使用千问处理多个端点（使用 --workers 3，千问支持3个并发）
+casecraft generate ecommerce_api_openapi.json \
+  --provider qwen \
+  --include-tag "auth" \
+  --workers 3 \
+  --force
+
+# 3. 使用GLM处理端点（GLM只支持单并发）
+casecraft generate ecommerce_api_openapi.json \
+  --provider glm \
+  --include-tag "products" \
+  --workers 1 \
+  --force
+
+# 4. 使用Kimi处理端点（Kimi支持2个并发）
+casecraft generate ecommerce_api_openapi.json \
+  --provider kimi \
+  --include-tag "orders" \
+  --workers 2 \
+  --force
+
+# 5. 多提供商并发处理所有端点
+casecraft generate ecommerce_api_openapi.json \
+  --providers glm,qwen,kimi \
+  --strategy round_robin \
+  --force
+
+# 6. 查看端点数量但不生成（dry-run）
+casecraft generate ecommerce_api_openapi.json \
+  --provider qwen \
+  --include-tag "users" \
+  --dry-run
+
+# 7. 指定输出目录和组织方式
+casecraft generate api.json \
+  --provider qwen \
+  --output test_output \
+  --organize-by tag \
+  --workers 3
+
+# 8. 使用特定模型版本
+casecraft generate api.json \
+  --provider qwen \
+  --model qwen-max \
+  --workers 3 \
+  --force
+```
+
+#### Workers 参数使用指南
+
+**根据端点数量选择合适的 workers 数：**
+
+| 场景 | 推荐配置 | 说明 |
+|------|----------|------|
+| **单个端点** | `--workers 1` | 单个端点无法并行，使用1个worker即可 |
+| **多个端点 + GLM** | `--workers 1` | GLM只支持单并发 |
+| **多个端点 + Qwen** | `--workers 3` | 千问支持最多3个并发 |
+| **多个端点 + Kimi** | `--workers 2` | Kimi支持最多2个并发 |
+| **多个端点 + Local** | `--workers 4` | 本地模型根据硬件配置调整 |
+
+**示例对比：**
+
+```bash
+# ✅ 正确：单端点使用1个worker
+casecraft generate api.json --provider qwen --include-path "/api/v1/auth/register" --workers 1
+
+# ❌ 不推荐：单端点使用多个workers（浪费资源）
+casecraft generate api.json --provider qwen --include-path "/api/v1/auth/register" --workers 3
+
+# ✅ 正确：多端点使用提供商支持的最大并发数
+casecraft generate api.json --provider qwen --include-tag "auth" --workers 3
 ```
 
 ## 命令参考
@@ -90,14 +172,16 @@ casecraft generate ./api.yaml --dry-run
 - `--providers`: 使用多个提供商，逗号分隔
 - `--provider-map`: 手动映射端点到提供商
 - `--strategy`: 提供商分配策略 (round_robin/random/complexity/manual)
-- `--model`: 指定具体模型（如 glm-4.5-airx）
+- `--model`: 指定具体模型（如 glm-4.5-airx, qwen-max, moonshot-v1-8k）
 - `--include-tag`: 只包含指定标签的端点
 - `--exclude-tag`: 排除指定标签的端点
 - `--include-path`: 只包含匹配模式的路径
-- `--workers, -w`: 并发工作线程数
+- `--workers, -w`: 并发工作线程数（根据提供商和端点数量调整）
 - `--force`: 强制重新生成所有测试用例
 - `--dry-run`: 预览模式，不调用 LLM
 - `--organize-by`: 按标签组织输出文件
+- `--quiet, -q`: 静默模式（仅显示警告和错误）
+- `--verbose, -v`: 详细模式（显示调试信息）
 
 ## 配置
 
