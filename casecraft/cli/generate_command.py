@@ -1,9 +1,10 @@
-"""Implementation of the generate command."""
+"""Implementation of the generate command with multi-provider support."""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 import click
 from rich.console import Console
@@ -11,8 +12,13 @@ from rich.panel import Panel
 from rich.table import Table
 
 from casecraft.core.management.config_manager import ConfigManager, ConfigError
+from casecraft.core.management.multi_provider_config_manager import MultiProviderConfigManager
+from casecraft.core.management.enhanced_state_manager import EnhancedStateManager
 from casecraft.core.engine import GeneratorEngine, GeneratorError, GenerationResult
+from casecraft.core.multi_provider_engine import MultiProviderEngine
 from casecraft.models.config import CaseCraftConfig
+from casecraft.models.provider_config import MultiProviderConfig, ProviderConfig
+from casecraft.core.providers.registry import ProviderRegistry
 
 
 console = Console()
@@ -29,7 +35,12 @@ async def generate_command(
     dry_run: bool,
     organize_by: Optional[str],
     verbose: bool,
-    quiet: bool = False
+    quiet: bool = False,
+    provider: Optional[str] = None,
+    providers: Optional[str] = None,
+    provider_map: Optional[str] = None,
+    strategy: str = "round_robin",
+    model: Optional[str] = None
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -45,7 +56,34 @@ async def generate_command(
         organize_by: Organization method
         verbose: Verbose output
         quiet: Quiet mode (warnings/errors only)
+        provider: Single provider name
+        providers: Comma-separated provider list
+        provider_map: Manual provider mapping
+        strategy: Provider assignment strategy
     """
+    # Check if multi-provider support is requested
+    if provider or providers or provider_map or os.getenv("CASECRAFT_PROVIDER") or os.getenv("CASECRAFT_PROVIDERS"):
+        # Use multi-provider implementation
+        return await _generate_with_providers(
+            source=source,
+            output=output,
+            include_tag=include_tag,
+            exclude_tag=exclude_tag,
+            include_path=include_path,
+            workers=workers,
+            force=force,
+            dry_run=dry_run,
+            organize_by=organize_by,
+            verbose=verbose,
+            quiet=quiet,
+            provider=provider or os.getenv("CASECRAFT_PROVIDER"),
+            providers=providers or os.getenv("CASECRAFT_PROVIDERS"),
+            provider_map=provider_map,
+            strategy=strategy,
+            model=model
+        )
+    
+    # Legacy single-provider mode (backward compatibility)
     try:
         # Load configuration
         config = await _load_configuration(
@@ -350,6 +388,548 @@ def _show_generation_results(result: GenerationResult) -> None:
     # Next steps
     if result.generated_files:
         console.print(f"\n[dim]💡 Test case files are ready for use with your testing framework[/dim]")
+
+
+async def _generate_with_providers(
+    source: str,
+    output: str,
+    include_tag: tuple,
+    exclude_tag: tuple,
+    include_path: tuple,
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    organize_by: Optional[str],
+    verbose: bool,
+    quiet: bool,
+    provider: Optional[str],
+    providers: Optional[str],
+    provider_map: Optional[str],
+    strategy: str,
+    model: Optional[str] = None
+) -> None:
+    """Generate test cases with multi-provider support."""
+    try:
+        # Validate provider specification
+        config_manager = MultiProviderConfigManager()
+        config_manager.validate_provider_specified(provider, 
+                                                  providers.split(",") if providers else None,
+                                                  _parse_provider_map(provider_map) if provider_map else None)
+        
+        # Determine mode
+        if provider:
+            # Single provider mode
+            await _run_single_provider(
+                source, output, include_tag, exclude_tag, include_path,
+                workers, force, dry_run, organize_by, verbose, quiet, provider, model
+            )
+        else:
+            # Multi-provider mode
+            # If provider_map is specified but providers is not, extract providers from map
+            if provider_map and not providers:
+                mapping = _parse_provider_map(provider_map)
+                providers = ",".join(set(mapping.values()))
+            
+            await _run_multi_provider(
+                source, output, include_tag, exclude_tag, include_path,
+                workers, force, dry_run, organize_by, verbose, quiet,
+                providers, provider_map, strategy
+            )
+            
+    except ConfigError as e:
+        console.print(f"[red]Configuration Error:[/red] {e}")
+        _show_provider_config_help()
+        raise click.ClickException(str(e))
+    except GeneratorError as e:
+        console.print(f"[red]Generation Error:[/red] {e}")
+        raise click.ClickException(str(e))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Generation cancelled by user.[/yellow]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Unexpected Error:[/red] {e}")
+        if verbose:
+            console.print_exception()
+        raise click.ClickException(str(e))
+
+
+async def _run_single_provider(
+    source: str,
+    output: str,
+    include_tag: tuple,
+    exclude_tag: tuple,
+    include_path: tuple,
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    organize_by: Optional[str],
+    verbose: bool,
+    quiet: bool,
+    provider: str,
+    model: Optional[str] = None
+) -> None:
+    """Run generation with a single provider."""
+    
+    # Load configuration for single provider
+    config = await _load_single_provider_config(provider, output, workers, force, dry_run, organize_by, verbose, model)
+    
+    # Register the provider
+    _register_provider(provider)
+    
+    # Show configuration
+    if not quiet:
+        _show_single_provider_config(provider, config, verbose)
+    
+    # Use enhanced state manager
+    state_manager = EnhancedStateManager()
+    
+    # Initialize engine
+    engine = GeneratorEngine(config, console, verbose=verbose, quiet=quiet)
+    
+    # Convert tuples to lists
+    include_tags = list(include_tag) if include_tag else None
+    exclude_tags = list(exclude_tag) if exclude_tag else None
+    include_paths = list(include_path) if include_path else None
+    
+    # Track start
+    if not dry_run:
+        await state_manager.load_state()
+    
+    # Generate test cases
+    result = await engine.generate(
+        source=source,
+        include_tags=include_tags,
+        exclude_tags=exclude_tags,
+        include_paths=include_paths,
+        force=force,
+        dry_run=dry_run
+    )
+    
+    # Update statistics
+    if not dry_run:
+        # Update overall statistics first
+        await state_manager.update_statistics(
+            total_endpoints=result.total_endpoints,
+            generated_count=result.generated_count,
+            skipped_count=result.skipped_count,
+            failed_count=result.failed_count
+        )
+        
+        # Update provider-specific statistics if we have token usage
+        if result.has_token_usage():
+            # Get actual token usage from result
+            token_summary = result.get_token_summary()
+            total_tokens = token_summary.get('total_tokens', 0)
+            
+            # Update provider stats for successful generation
+            if result.generated_count > 0:
+                state_manager.complete_provider_request(
+                    provider=provider,
+                    endpoint_id="batch",  # Use a generic ID for batch operations
+                    success=True,
+                    tokens=total_tokens
+                )
+        
+        # Save state
+        state = await state_manager.load_state()
+        await state_manager.save_state(state)
+    
+    # Show results
+    if not quiet:
+        _show_results_with_provider_stats(result, state_manager, dry_run)
+
+
+async def _run_multi_provider(
+    source: str,
+    output: str,
+    include_tag: tuple,
+    exclude_tag: tuple,
+    include_path: tuple,
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    organize_by: Optional[str],
+    verbose: bool,
+    quiet: bool,
+    providers: Optional[str],
+    provider_map: Optional[str],
+    strategy: str
+) -> None:
+    """Run generation with multiple providers."""
+    
+    # Parse provider configuration
+    provider_list = providers.split(",") if providers else []
+    mapping = _parse_provider_map(provider_map) if provider_map else None
+    
+    # Load multi-provider configuration
+    multi_config = await _load_multi_provider_config(
+        provider_list, mapping, strategy, output, workers, force, dry_run, organize_by, verbose
+    )
+    
+    # Register all providers
+    for provider_name in multi_config.get_active_providers():
+        _register_provider(provider_name)
+    
+    # Show configuration
+    if not quiet:
+        _show_multi_provider_config(multi_config, verbose)
+    
+    # Initialize state manager early if not dry run
+    state_manager = None
+    if not dry_run:
+        state_manager = EnhancedStateManager()
+        await state_manager.load_state()
+    
+    # Initialize multi-provider engine with state manager
+    engine = MultiProviderEngine(multi_config, output_dir=output, state_manager=state_manager)
+    
+    # Load and parse API specification
+    from casecraft.core.parsing.api_parser import APIParser
+    parser = APIParser()
+    api_spec = await parser.parse_from_source(source)
+    
+    # Filter endpoints
+    include_tags = list(include_tag) if include_tag else None
+    exclude_tags = list(exclude_tag) if exclude_tag else None
+    include_paths = list(include_path) if include_path else None
+    
+    filtered_endpoints = _filter_endpoints(
+        api_spec.endpoints,
+        include_tags,
+        exclude_tags,
+        include_paths
+    )
+    
+    # Perform health checks
+    if not dry_run and not quiet:
+        console.print("\n[blue]🏥 Performing provider health checks...[/blue]")
+        health_status = await engine.health_check_all()
+        for provider_name, is_healthy in health_status.items():
+            status = "[green]✓[/green]" if is_healthy else "[red]✗[/red]"
+            console.print(f"  {status} {provider_name}")
+    
+    # Generate with providers
+    if not dry_run:
+        # Generate
+        result = await engine.generate_with_providers(
+            filtered_endpoints,
+            _parse_provider_map(provider_map) if provider_map else None
+        )
+        
+        # Update state manager with generation results
+        await _update_multi_provider_stats(state_manager, result, filtered_endpoints)
+        
+        # Save state
+        state = await state_manager.load_state()
+        await state_manager.save_state(state)
+        
+        # Show results with statistics
+        if not quiet:
+            _show_multi_provider_results(result, state_manager)
+    else:
+        # Dry run
+        if not quiet:
+            console.print(f"\n[yellow]🔍 Preview: Would generate {len(filtered_endpoints)} endpoints using {len(multi_config.get_active_providers())} providers[/yellow]")
+
+
+def _register_provider(provider_name: str) -> None:
+    """Register a provider with the registry."""
+    provider_lower = provider_name.lower()
+    
+    if provider_lower == "glm":
+        from casecraft.core.providers.glm_provider import GLMProvider
+        ProviderRegistry.register("glm", GLMProvider)
+    elif provider_lower == "qwen":
+        from casecraft.core.providers.qwen_provider import QwenProvider
+        ProviderRegistry.register("qwen", QwenProvider)
+    elif provider_lower == "kimi":
+        from casecraft.core.providers.kimi_provider import KimiProvider
+        ProviderRegistry.register("kimi", KimiProvider)
+    elif provider_lower == "local":
+        from casecraft.core.providers.local_provider import LocalProvider
+        ProviderRegistry.register("local", LocalProvider)
+
+
+def _parse_provider_map(mapping_str: str) -> Dict[str, str]:
+    """Parse provider mapping string."""
+    if not mapping_str:
+        return {}
+    
+    mapping = {}
+    for item in mapping_str.split(","):
+        if ":" in item:
+            path, provider = item.split(":", 1)
+            mapping[path.strip()] = provider.strip()
+    
+    return mapping
+
+
+def _filter_endpoints(endpoints, include_tags, exclude_tags, include_paths):
+    """Filter endpoints based on criteria."""
+    filtered = endpoints
+    
+    if include_tags:
+        filtered = [e for e in filtered if any(tag in e.tags for tag in include_tags)]
+    
+    if exclude_tags:
+        filtered = [e for e in filtered if not any(tag in e.tags for tag in exclude_tags)]
+    
+    if include_paths:
+        filtered = [e for e in filtered if any(pattern in e.path for pattern in include_paths)]
+    
+    return filtered
+
+
+async def _load_single_provider_config(
+    provider: str,
+    output: str,
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    organize_by: Optional[str],
+    verbose: bool,
+    model: Optional[str] = None
+) -> CaseCraftConfig:
+    """Load configuration for single provider mode."""
+    config_manager = MultiProviderConfigManager()
+    
+    # Get base configuration
+    base_config = config_manager.create_default_config()
+    
+    # Apply overrides for the specific provider
+    provider_upper = provider.upper()
+    
+    # Use --model parameter if provided, otherwise use environment variable
+    if model:
+        base_config.llm.model = model
+    else:
+        base_config.llm.model = os.getenv(f"CASECRAFT_{provider_upper}_MODEL", f"{provider}-model")
+    
+    base_config.llm.api_key = os.getenv(f"CASECRAFT_{provider_upper}_API_KEY")
+    base_config.llm.base_url = os.getenv(f"CASECRAFT_{provider_upper}_BASE_URL")
+    
+    # Apply CLI overrides
+    if output != "test_cases":
+        base_config.output.directory = output
+    if workers != 1:
+        base_config.processing.workers = workers
+    base_config.processing.force_regenerate = force
+    base_config.processing.dry_run = dry_run
+    if organize_by:
+        base_config.output.organize_by_tag = (organize_by == "tag")
+    
+    return base_config
+
+
+async def _load_multi_provider_config(
+    providers: List[str],
+    mapping: Optional[Dict[str, str]],
+    strategy: str,
+    output: str,
+    workers: int,
+    force: bool,
+    dry_run: bool,
+    organize_by: Optional[str],
+    verbose: bool
+) -> MultiProviderConfig:
+    """Load multi-provider configuration."""
+    config_manager = MultiProviderConfigManager()
+    
+    # Get multi-provider config from environment
+    multi_config = config_manager.get_multi_provider_config()
+    
+    # Override with CLI parameters
+    if providers:
+        multi_config.providers = providers
+    
+    multi_config.strategy = strategy
+    
+    # Add provider configs
+    for provider_name in providers:
+        if provider_name not in multi_config.configs:
+            # Create config from environment
+            provider_upper = provider_name.upper()
+            provider_config = ProviderConfig(
+                name=provider_name,
+                model=os.getenv(f"CASECRAFT_{provider_upper}_MODEL", f"{provider_name}-model"),
+                api_key=os.getenv(f"CASECRAFT_{provider_upper}_API_KEY"),
+                base_url=os.getenv(f"CASECRAFT_{provider_upper}_BASE_URL"),
+                workers=workers
+            )
+            multi_config.configs[provider_name] = provider_config
+    
+    return multi_config
+
+
+def _show_single_provider_config(provider: str, config: CaseCraftConfig, verbose: bool) -> None:
+    """Show single provider configuration."""
+    console.print(f"\n[bold blue]━━━━━━ 🚀 LLM Provider Config ━━━━━━[/bold blue]")
+    
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")
+    table.add_column(width=12, justify="left")
+    table.add_column(justify="left")
+    
+    table.add_row("🤖", "Provider:", f"[cyan bold]{provider}[/cyan bold]")
+    table.add_row("📦", "Model:", f"[cyan]{config.llm.model}[/cyan]")
+    table.add_row("🌐", "Base URL:", f"[dim]{config.llm.base_url}[/dim]")
+    table.add_row("⚡", "Workers:", f"[yellow]{config.processing.workers}[/yellow]")
+    
+    console.print(table)
+    console.print("[dim]────────────────────────────[/dim]\n")
+
+
+def _show_multi_provider_config(config: MultiProviderConfig, verbose: bool) -> None:
+    """Show multi-provider configuration."""
+    console.print(f"\n[bold blue]━━━━━━ 🚀 Multi-Provider Config ━━━━━━[/bold blue]")
+    
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")
+    table.add_column(width=12, justify="left")
+    table.add_column(justify="left")
+    
+    providers_str = ", ".join(config.get_active_providers())
+    table.add_row("🤖", "Providers:", f"[cyan bold]{providers_str}[/cyan bold]")
+    table.add_row("🎯", "Strategy:", f"[yellow]{config.strategy}[/yellow]")
+    table.add_row("🔄", "Fallback:", f"[{'green' if config.fallback_enabled else 'dim'}]{config.fallback_enabled}[/]")
+    
+    if verbose:
+        for provider_name, provider_config in config.configs.items():
+            table.add_row("", f"{provider_name}:", f"{provider_config.model} (workers: {provider_config.workers})")
+    
+    console.print(table)
+    console.print("[dim]────────────────────────────[/dim]\n")
+
+
+def _show_results_with_provider_stats(result: GenerationResult, state_manager: EnhancedStateManager, dry_run: bool) -> None:
+    """Show results with provider statistics."""
+    # Show standard results
+    _show_results(result, dry_run)
+    
+    # Show provider statistics
+    if not dry_run:
+        state_manager.print_statistics_report()
+
+
+def _show_multi_provider_results(result, state_manager: EnhancedStateManager) -> None:
+    """Show multi-provider generation results."""
+    console.print("\n[bold green]━━━━━━ ✨ Multi-Provider Generation Complete ━━━━━━[/bold green]")
+    
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(width=2, justify="left")
+    table.add_column(width=18, justify="left")
+    table.add_column(justify="left")
+    
+    table.add_row("✅", "Successful:", f"[green bold]{len(result.successful_endpoints)}[/green bold]")
+    table.add_row("❌", "Failed:", f"[red]{len(result.failed_endpoints)}[/red]")
+    table.add_row("📊", "Total Tokens:", f"[yellow]{result.total_tokens}[/yellow]")
+    
+    console.print(table)
+    
+    # Show provider usage
+    if result.provider_usage:
+        console.print("\n[blue]Provider Usage:[/blue]")
+        for provider, count in result.provider_usage.items():
+            console.print(f"  • {provider}: {count} endpoints")
+    
+    # Show statistics report
+    state_manager.print_statistics_report()
+
+
+async def _update_multi_provider_stats(
+    state_manager: EnhancedStateManager,
+    result,
+    filtered_endpoints
+) -> None:
+    """Update state manager with multi-provider generation results.
+    
+    Args:
+        state_manager: Enhanced state manager
+        result: Generation result from multi-provider engine
+        filtered_endpoints: List of filtered endpoints that were processed
+    """
+    # Create a mapping of endpoint IDs to endpoint objects
+    endpoint_map = {ep.get_endpoint_id(): ep for ep in filtered_endpoints}
+    
+    # Update state for each successfully generated endpoint
+    for endpoint_id in result.successful_endpoints:
+        if endpoint_id in endpoint_map:
+            endpoint = endpoint_map[endpoint_id]
+            
+            # Get the provider that was used (from result.provider_usage tracking)
+            provider_used = None
+            for provider_name in result.provider_usage:
+                provider_used = provider_name
+                break  # We'll use the first provider found for simplicity
+            
+            # Estimate tokens per endpoint (divide total by number of successful)
+            tokens_per_endpoint = result.total_tokens // len(result.successful_endpoints) if result.successful_endpoints else 0
+            
+            # Mark endpoint as generated
+            await state_manager.mark_endpoint_generated(
+                endpoint=endpoint,
+                test_cases_count=5,  # Default estimate, actual count would need to be tracked
+                output_file=None,  # File path already tracked in result.generated_files
+                provider_used=provider_used,
+                tokens_used=tokens_per_endpoint
+            )
+            
+            # Update provider request statistics
+            if provider_used:
+                state_manager.complete_provider_request(
+                    provider=provider_used,
+                    endpoint_id=endpoint_id,
+                    success=True,
+                    tokens=tokens_per_endpoint
+                )
+    
+    # Update state for failed endpoints
+    for endpoint_id in result.failed_endpoints:
+        if endpoint_id in endpoint_map:
+            # Track failure in provider stats
+            for provider_name in result.provider_usage:
+                state_manager.complete_provider_request(
+                    provider=provider_name,
+                    endpoint_id=endpoint_id,
+                    success=False,
+                    error_type="generation_failed"
+                )
+                break
+    
+    # Update overall statistics
+    total_endpoints = len(result.successful_endpoints) + len(result.failed_endpoints)
+    await state_manager.update_statistics(
+        total_endpoints=total_endpoints,
+        generated_count=len(result.successful_endpoints),
+        skipped_count=0,  # Multi-provider doesn't track skipped separately
+        failed_count=len(result.failed_endpoints)
+    )
+
+
+def _show_provider_config_help() -> None:
+    """Show provider configuration help."""
+    help_text = """
+You must specify an LLM provider. Options:
+
+1. Single provider:
+   [cyan]casecraft generate api.json --provider glm[/cyan]
+
+2. Multiple providers:
+   [cyan]casecraft generate api.json --providers glm,qwen,kimi[/cyan]
+
+3. Manual mapping:
+   [cyan]casecraft generate api.json --provider-map "/users:qwen,/products:glm"[/cyan]
+
+4. Set via environment:
+   [cyan]export CASECRAFT_PROVIDER=glm[/cyan]
+   [cyan]export CASECRAFT_PROVIDERS=glm,qwen,kimi[/cyan]
+"""
+    
+    console.print(Panel(
+        help_text.strip(),
+        title="Provider Configuration Required",
+        border_style="yellow"
+    ))
 
 
 def run_generate_command(*args, **kwargs) -> None:

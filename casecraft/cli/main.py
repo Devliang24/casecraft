@@ -22,10 +22,11 @@ console = Console()
 )
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
-    """CaseCraft: Generate API test cases using BigModel LLM.
+    """CaseCraft: Generate API test cases using multiple LLM providers.
     
     A CLI tool that parses API documentation (OpenAPI/Swagger) and uses
-    BigModel GLM-4.5-X to generate structured test case data in JSON format.
+    various LLM providers (GLM, Qwen, Kimi, local models) to generate 
+    structured test case data in JSON format.
     """
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
@@ -87,7 +88,7 @@ def init() -> None:
     "--workers", "-w",
     default=1,
     type=int,
-    help="Number of concurrent workers (BigModel only supports 1)"
+    help="Number of concurrent workers (provider-dependent)"
 )
 @click.option(
     "--force",
@@ -104,6 +105,28 @@ def init() -> None:
     type=click.Choice(["tag"]),
     help="Organize output files by criteria"
 )
+@click.option(
+    "--provider",
+    help="Use specific LLM provider for all endpoints (e.g., glm, qwen, kimi, local)"
+)
+@click.option(
+    "--providers",
+    help="Comma-separated list of providers for concurrent execution"
+)
+@click.option(
+    "--provider-map",
+    help="Manual provider mapping (format: path1:provider1,path2:provider2)"
+)
+@click.option(
+    "--strategy",
+    type=click.Choice(["round_robin", "random", "complexity_based", "manual"]),
+    default="round_robin",
+    help="Provider assignment strategy (used with --providers)"
+)
+@click.option(
+    "--model", "-m",
+    help="Specify model for the provider (e.g., glm-4-flash, qwen-plus)"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -116,19 +139,35 @@ def generate(
     force: bool,
     dry_run: bool,
     organize_by: str,
+    provider: str,
+    providers: str,
+    provider_map: str,
+    strategy: str,
+    model: str,
 ) -> None:
     """Generate test cases from API documentation.
     
     SOURCE can be a URL (https://...) or local file path to OpenAPI/Swagger
     documentation in JSON or YAML format.
     
+    IMPORTANT: You must specify an LLM provider using one of these options:
+        --provider <name>: Use a single provider for all endpoints
+        --providers <list>: Use multiple providers with a strategy
+        --provider-map <mapping>: Map specific endpoints to providers
+    
     Examples:
     
-        casecraft generate https://petstore.swagger.io/v2/swagger.json
+        # Single provider
+        casecraft generate api.json --provider glm
         
-        casecraft generate ./api-docs.yaml --include-tag users
+        # Multiple providers with round-robin
+        casecraft generate api.json --providers glm,qwen,kimi
         
-        casecraft generate ./openapi.json --force --dry-run
+        # Manual mapping
+        casecraft generate api.json --provider-map "/users:qwen,/products:glm"
+        
+        # With filters and options
+        casecraft generate ./api-docs.yaml --provider glm --include-tag users --force
     """
     from casecraft.cli.generate_command import run_generate_command
     
@@ -146,7 +185,12 @@ def generate(
         dry_run=dry_run,
         organize_by=organize_by,
         verbose=verbose,
-        quiet=quiet
+        quiet=quiet,
+        provider=provider,
+        providers=providers,
+        provider_map=provider_map,
+        strategy=strategy,
+        model=model
     )
 
 

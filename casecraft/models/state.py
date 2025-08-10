@@ -13,6 +13,8 @@ class EndpointState(BaseModel):
     last_generated: datetime = Field(..., description="Last generation timestamp")
     test_cases_count: int = Field(default=0, description="Number of generated test cases")
     output_file: Optional[str] = Field(None, description="Path to generated JSON file")
+    provider_used: Optional[str] = Field(None, description="Provider used for generation")
+    tokens_used: Optional[int] = Field(None, description="Tokens used for generation")
 
 
 class ProcessingStatistics(BaseModel):
@@ -23,6 +25,9 @@ class ProcessingStatistics(BaseModel):
     skipped_count: int = Field(default=0)
     failed_count: int = Field(default=0)
     last_run_duration: Optional[float] = Field(None, description="Duration in seconds")
+    provider_usage: Dict[str, int] = Field(default_factory=dict, description="Usage count per provider")
+    provider_success_rate: Dict[str, float] = Field(default_factory=dict, description="Success rate per provider")
+    provider_avg_tokens: Dict[str, float] = Field(default_factory=dict, description="Average tokens per provider")
 
 
 class ProjectConfig(BaseModel):
