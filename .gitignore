@@ -92,3 +92,5 @@ test_*.json
 *.tmp
 *.temp
 *.cache
+merge_record.txt
+merge_report.txt
