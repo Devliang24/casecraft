@@ -87,9 +87,9 @@ class KimiProvider(LLMProvider):
             
             # Add structured output format if enabled
             # Note: Kimi's structured output wraps arrays in an object, 
-            # which breaks our test case parsing. Disable for now.
-            # if self.config.use_structured_output:
-            #     payload["response_format"] = {"type": "json_object"}
+            # but we handle this with _unwrap_array_response method
+            if self.config.use_structured_output:
+                payload["response_format"] = {"type": "json_object"}
             
             self.logger.debug(f"Kimi request - Model: {self.config.model}, Messages: {len(messages)}")
             
@@ -102,6 +102,54 @@ class KimiProvider(LLMProvider):
             except Exception as e:
                 self.logger.error(f"Kimi generation failed: {str(e)}")
                 raise ProviderGenerationError(f"Kimi API error: {e}") from e
+    
+    def _unwrap_array_response(self, content: str) -> str:
+        """Unwrap array response from Kimi's structured output format.
+        
+        When using structured output (response_format), Kimi wraps arrays 
+        in an object like {"response": [...]}. This method unwraps it.
+        
+        Args:
+            content: Response content from Kimi
+            
+        Returns:
+            Unwrapped content (array as string) or original content
+        """
+        try:
+            parsed = json.loads(content)
+            
+            # If it's already an array, return as is
+            if isinstance(parsed, list):
+                return content
+            
+            # If it's a dict, check for wrapped array
+            if isinstance(parsed, dict):
+                # Check common wrapper keys that Kimi might use
+                wrapper_keys = ['response', 'data', 'result', 'test_cases', 'tests', 'items']
+                
+                for key in wrapper_keys:
+                    if key in parsed and isinstance(parsed[key], list):
+                        # Found wrapped array, unwrap it
+                        unwrapped = parsed[key]
+                        self.logger.debug(f"Unwrapped array from '{key}' field: {len(unwrapped)} items")
+                        return json.dumps(unwrapped, ensure_ascii=False, indent=2)
+                
+                # Check if it's a single test case object that should be wrapped in array
+                if 'test_id' in parsed and 'name' in parsed:
+                    self.logger.debug("Single test case detected, wrapping in array")
+                    return json.dumps([parsed], ensure_ascii=False, indent=2)
+            
+            # Return original content if no unwrapping needed
+            return content
+            
+        except json.JSONDecodeError:
+            # If can't parse, return original content
+            self.logger.debug("Content is not valid JSON, returning as is")
+            return content
+        except Exception as e:
+            # Any other error, return original content
+            self.logger.warning(f"Error unwrapping array response: {e}")
+            return content
     
     async def _generate_non_stream(
         self,
@@ -163,6 +211,12 @@ class KimiProvider(LLMProvider):
         choice = response["choices"][0]
         usage = response.get("usage", {})
         
+        # Get content and unwrap if structured output is enabled
+        content = choice["message"]["content"]
+        if self.config.use_structured_output:
+            content = self._unwrap_array_response(content)
+            self.logger.debug("Applied array unwrapping for structured output")
+        
         # Create token usage
         token_usage = None
         if usage:
@@ -181,7 +235,7 @@ class KimiProvider(LLMProvider):
                 self.logger.warning(f"Progress callback error: {e}")
         
         return LLMResponse(
-            content=choice["message"]["content"],
+            content=content,
             provider=self.name,
             model=self.config.model,
             token_usage=token_usage,
@@ -261,8 +315,13 @@ class KimiProvider(LLMProvider):
                 if progress_callback:
                     progress_callback(1.0)
                 
-                # Estimate token usage for streaming (rough approximation)
+                # Combine chunks and unwrap if structured output is enabled
                 content = "".join(content_chunks)
+                if self.config.use_structured_output:
+                    content = self._unwrap_array_response(content)
+                    self.logger.debug("Applied array unwrapping for structured output (streaming)")
+                
+                # Estimate token usage for streaming (rough approximation)
                 estimated_tokens = len(content) // 4  # Rough estimate: 1 token ≈ 4 characters
                 token_usage = TokenUsage(
                     prompt_tokens=len(str(payload["messages"])) // 4,
