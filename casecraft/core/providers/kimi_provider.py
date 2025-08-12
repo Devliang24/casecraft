@@ -134,9 +134,10 @@ class KimiProvider(LLMProvider):
                         self.logger.debug(f"Unwrapped array from '{key}' field: {len(unwrapped)} items")
                         return json.dumps(unwrapped, ensure_ascii=False, indent=2)
                 
-                # Check if it's a single test case object that should be wrapped in array
-                if 'test_id' in parsed and 'name' in parsed:
-                    self.logger.debug("Single test case detected, wrapping in array")
+                # Check if it's a single object that should be wrapped in array
+                # This handles both test cases and simple objects
+                if any(key in parsed for key in ['test_id', 'id', 'test_name']):
+                    self.logger.debug("Single object detected, wrapping in array")
                     return json.dumps([parsed], ensure_ascii=False, indent=2)
             
             # Return original content if no unwrapping needed
