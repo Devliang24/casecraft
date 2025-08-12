@@ -218,7 +218,7 @@ def _show_model_config(config: CaseCraftConfig, verbose: bool) -> None:
     
     console.print("\n[bold blue]━━━━━━ 🚀 Generation Config ━━━━━━[/bold blue]")
     console.print(table)
-    console.print("[dim]────────────────────────────[/dim]\n")
+    console.print("[dim]──────────────────────────────────[/dim]\n")
 
 
 def _show_config_help() -> None:
@@ -275,7 +275,7 @@ def _show_dry_run_results(result: GenerationResult) -> None:
     
     if result.api_spec and result.api_spec.endpoints:
         console.print(f"\n[yellow]💡 Tip: Remove --dry-run to start actual generation[/yellow]")
-    console.print("[dim]────────────────────────────[/dim]")
+    console.print("[dim]──────────────────────────────────[/dim]")
 
 
 def _show_token_statistics(result: GenerationResult) -> None:
@@ -328,7 +328,7 @@ def _show_token_statistics(result: GenerationResult) -> None:
             token_table.add_row("⚖️", "Avg Retries/Endpoint:", f"{avg_retries:.1f}")
     
     console.print(token_table)
-    console.print("[dim]────────────────────────────[/dim]")
+    console.print("[dim]──────────────────────────────────[/dim]")
 
 
 def _show_generation_results(result: GenerationResult) -> None:
@@ -786,7 +786,7 @@ def _show_single_provider_config(provider: str, config: CaseCraftConfig, verbose
     table.add_row("🔄", "Max Retries:", f"[blue]{config.llm.max_retries}[/blue]")
     
     console.print(table)
-    console.print("[dim]────────────────────────────[/dim]\n")
+    console.print("[dim]──────────────────────────────────[/dim]\n")
 
 
 def _show_multi_provider_config(config: MultiProviderConfig, verbose: bool) -> None:
@@ -808,7 +808,7 @@ def _show_multi_provider_config(config: MultiProviderConfig, verbose: bool) -> N
             table.add_row("", f"{provider_name}:", f"{provider_config.model} (workers: {provider_config.workers})")
     
     console.print(table)
-    console.print("[dim]────────────────────────────[/dim]\n")
+    console.print("[dim]──────────────────────────────────[/dim]\n")
 
 
 def _show_results_with_provider_stats(result: GenerationResult, state_manager: EnhancedStateManager, dry_run: bool) -> None:
