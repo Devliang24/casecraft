@@ -27,6 +27,7 @@ class GenerationResult:
         self.failed_endpoints: List[str] = []
         self.provider_usage: Dict[str, int] = {}
         self.total_tokens: int = 0
+        self.total_test_cases: int = 0
         self.errors: List[str] = []
         self.generated_files: List[Path] = []
 
@@ -258,6 +259,7 @@ class MultiProviderEngine:
                     
                     # Update result
                     result.successful_endpoints.append(endpoint_id)
+                    result.total_test_cases += len(test_cases.test_cases)
                     
                     # Update provider usage
                     provider_name = provider.name

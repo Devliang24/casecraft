@@ -347,6 +347,7 @@ def _show_generation_results(result: GenerationResult) -> None:
     
     table.add_row("📊", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
     table.add_row("✅", "Generated:", f"[green bold]{result.generated_count}[/green bold]")
+    table.add_row("📋", "Test Cases:", f"[cyan bold]{result.total_test_cases}[/cyan bold]")
     table.add_row("⏭", "Skipped:", f"[dim]{result.skipped_count}[/dim]")
     
     if result.failed_count > 0:
@@ -827,10 +828,11 @@ def _show_multi_provider_results(result, state_manager: EnhancedStateManager) ->
     
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column(width=2, justify="left")
-    table.add_column(width=18, justify="left")
+    table.add_column(width=20, justify="left")  # 与其他表格对齐
     table.add_column(justify="left")
     
     table.add_row("✅", "Successful:", f"[green bold]{len(result.successful_endpoints)}[/green bold]")
+    table.add_row("📋", "Test Cases:", f"[cyan bold]{result.total_test_cases}[/cyan bold]")
     table.add_row("❌", "Failed:", f"[red]{len(result.failed_endpoints)}[/red]")
     table.add_row("📊", "Total Tokens:", f"[yellow]{result.total_tokens}[/yellow]")
     

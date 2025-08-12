@@ -34,6 +34,7 @@ class GenerationResult:
         self.generated_count = 0
         self.skipped_count = 0
         self.failed_count = 0
+        self.total_test_cases = 0
         self.generated_files: List[str] = []
         self.failed_endpoints: List[str] = []
         self.duration = 0.0
@@ -87,6 +88,14 @@ class GenerationResult:
             True if token usage data is available
         """
         return self.token_statistics.total_calls > 0
+    
+    def add_test_cases(self, count: int) -> None:
+        """Add test case count to total.
+        
+        Args:
+            count: Number of test cases to add
+        """
+        self.total_test_cases += count
 
 
 class GeneratorEngine:
@@ -405,6 +414,7 @@ class GeneratorEngine:
             )
             
             result.generated_count += 1
+            result.add_test_cases(len(collection.test_cases))
             result.generated_files.append(str(output_file))
             
             # Show detailed progress with token usage
