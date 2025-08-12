@@ -347,7 +347,7 @@ def _show_generation_results(result: GenerationResult) -> None:
     
     table.add_row("📁", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
     table.add_row("✅", "Generated:", f"[green bold]{result.generated_count}[/green bold]")
-    table.add_row("⏭️", "Skipped:", f"[dim]{result.skipped_count}[/dim]")
+    table.add_row("⏸️ ", "Skipped:", f"[dim]{result.skipped_count}[/dim]")
     
     if result.failed_count > 0:
         table.add_row("❌", "Failed:", f"[red]{result.failed_count}[/red]")
