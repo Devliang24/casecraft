@@ -86,8 +86,10 @@ class KimiProvider(LLMProvider):
             }
             
             # Add structured output format if enabled
-            if self.config.use_structured_output:
-                payload["response_format"] = {"type": "json_object"}
+            # Note: Kimi's structured output wraps arrays in an object, 
+            # which breaks our test case parsing. Disable for now.
+            # if self.config.use_structured_output:
+            #     payload["response_format"] = {"type": "json_object"}
             
             self.logger.debug(f"Kimi request - Model: {self.config.model}, Messages: {len(messages)}")
             
