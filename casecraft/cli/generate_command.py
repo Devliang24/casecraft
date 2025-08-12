@@ -291,7 +291,7 @@ def _show_token_statistics(result: GenerationResult) -> None:
     # Create 3-column token statistics table for proper alignment
     token_table = Table(show_header=False, box=None, padding=(0, 1))
     token_table.add_column(width=2, justify="left")   # Emoji column
-    token_table.add_column(width=22, justify="left")  # Label column
+    token_table.add_column(width=20, justify="left")  # Label column (从 22 改为 20)
     token_table.add_column(justify="left")            # Value column
     
     # Model and API call statistics
@@ -766,14 +766,24 @@ def _show_single_provider_config(provider: str, config: CaseCraftConfig, verbose
     console.print(f"\n[bold blue]━━━━━━ 🚀 LLM Provider Config ━━━━━━[/bold blue]")
     
     table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column(width=2, justify="left")
-    table.add_column(width=12, justify="left")
-    table.add_column(justify="left")
+    table.add_column(width=2, justify="left")   # emoji 列
+    table.add_column(width=14, justify="left")  # 标签列（从 12 改为 14）
+    table.add_column(justify="left")            # 值列
     
+    # 基本信息
     table.add_row("🤖", "Provider:", f"[cyan bold]{provider}[/cyan bold]")
     table.add_row("📦", "Model:", f"[cyan]{config.llm.model}[/cyan]")
     table.add_row("🌐", "Base URL:", f"[dim]{config.llm.base_url}[/dim]")
+    
+    # 功能配置
+    table.add_row("🧠", "Think:", f"[{'green' if config.llm.think else 'dim'}]{config.llm.think}[/]")
+    table.add_row("📡", "Stream:", f"[{'green' if config.llm.stream else 'dim'}]{config.llm.stream}[/]")
+    
+    # 性能参数 - 使用单字符 emoji 避免对齐问题
+    table.add_row("🔥", "Temperature:", f"[yellow]{config.llm.temperature:.1f}[/yellow]")
     table.add_row("⚡", "Workers:", f"[yellow]{config.processing.workers}[/yellow]")
+    table.add_row("⏰", "Timeout:", f"[blue]{config.llm.timeout}s[/blue]")
+    table.add_row("🔄", "Max Retries:", f"[blue]{config.llm.max_retries}[/blue]")
     
     console.print(table)
     console.print("[dim]────────────────────────────[/dim]\n")
