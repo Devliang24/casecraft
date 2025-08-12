@@ -83,6 +83,10 @@ class GLMProvider(LLMProvider):
                 "temperature": kwargs.get("temperature", self.config.temperature)
             }
             
+            # Add structured output format if enabled
+            if self.config.use_structured_output:
+                payload["response_format"] = {"type": "json_object"}
+            
             self.logger.debug(f"GLM request - Model: {payload['model']}, Messages: {len(messages)}")
             
             try:
@@ -202,6 +206,10 @@ class GLMProvider(LLMProvider):
             "stream": True,
             "temperature": temperature
         }
+        
+        # Add structured output format if enabled
+        if self.config.use_structured_output:
+            payload["response_format"] = {"type": "json_object"}
         
         content_chunks = []
         token_usage = None

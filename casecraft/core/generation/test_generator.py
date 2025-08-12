@@ -13,7 +13,6 @@ from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCase, TestCaseCollection, TestType
 from casecraft.models.usage import TokenUsage
-from casecraft.utils.json_cleaner import clean_json_response
 from casecraft.utils.logging import get_logger
 
 
@@ -677,9 +676,9 @@ Return the test cases as a JSON array:"""
         Raises:
             TestGeneratorError: If response is invalid
         """
-        # Use JSON cleaner to handle various issues
+        # Parse JSON response directly
         try:
-            test_data = clean_json_response(response_content)
+            test_data = json.loads(response_content)
         except json.JSONDecodeError as e:
             # Log the problematic content for debugging
             self.logger.error(f"Failed to parse JSON: {str(e)[:100]}")

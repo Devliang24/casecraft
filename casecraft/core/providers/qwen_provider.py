@@ -87,6 +87,10 @@ class QwenProvider(LLMProvider):
                 "stream": self.config.stream
             }
             
+            # Add structured output format if enabled
+            if self.config.use_structured_output:
+                payload["response_format"] = {"type": "json_object"}
+            
             self.logger.debug(f"Qwen request - Model: {self.config.model}, Messages: {len(messages)}")
             
             try:

@@ -50,6 +50,7 @@ class ProviderConfig:
         temperature: float = 0.7,
         stream: bool = False,
         workers: int = 1,
+        use_structured_output: bool = True,
         **kwargs
     ):
         """Initialize provider configuration.
@@ -64,6 +65,7 @@ class ProviderConfig:
             temperature: Temperature for generation
             stream: Whether to stream responses
             workers: Maximum concurrent workers
+            use_structured_output: Use structured output format for JSON responses
             **kwargs: Additional provider-specific options
         """
         self.name = name
@@ -75,6 +77,7 @@ class ProviderConfig:
         self.temperature = temperature
         self.stream = stream
         self.workers = workers
+        self.use_structured_output = use_structured_output
         self.extra = kwargs
 
 
