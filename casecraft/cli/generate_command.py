@@ -264,7 +264,7 @@ def _show_dry_run_results(result: GenerationResult) -> None:
     # Create 3-column table for proper alignment
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column(width=2, justify="left")   # Emoji column
-    table.add_column(width=18, justify="left")  # Label column
+    table.add_column(width=20, justify="left")  # Label column (与其他表格对齐)
     table.add_column(justify="left")            # Value column
     
     table.add_row("📁", "Found Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
@@ -342,7 +342,7 @@ def _show_generation_results(result: GenerationResult) -> None:
     # Create 3-column summary table for proper alignment
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column(width=2, justify="left")   # Emoji column
-    table.add_column(width=18, justify="left")  # Label column
+    table.add_column(width=20, justify="left")  # Label column (与Usage Statistics对齐)
     table.add_column(justify="left")            # Value column
     
     table.add_row("📊", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
