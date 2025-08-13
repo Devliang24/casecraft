@@ -693,7 +693,72 @@ Return the test cases as a JSON array:"""
             raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
         
         if not isinstance(test_data, list):
-            raise TestGeneratorError("LLM response must be a JSON array of test cases")
+            # Special handling for non-array responses (e.g., from Kimi provider)
+            self.logger.warning(f"Response is not an array, attempting to extract test cases from {type(test_data)}")
+            
+            if isinstance(test_data, dict):
+                # Try to find an array field in the response
+                possible_keys = [
+                    'response', 'data', 'result', 'test_cases', 'tests', 'items',
+                    'testCases', 'test_case_list', 'cases', 'array', 'list',
+                    'content', 'output', 'generated', 'testdata'
+                ]
+                
+                extracted_array = None
+                for key in possible_keys:
+                    if key in test_data and isinstance(test_data[key], list):
+                        extracted_array = test_data[key]
+                        self.logger.info(f"Extracted test cases from '{key}' field: {len(extracted_array)} items")
+                        break
+                
+                # Check for nested arrays
+                if not extracted_array:
+                    for key, value in test_data.items():
+                        if isinstance(value, dict):
+                            for nested_key in possible_keys:
+                                if nested_key in value and isinstance(value[nested_key], list):
+                                    extracted_array = value[nested_key]
+                                    self.logger.info(f"Extracted test cases from nested '{key}.{nested_key}': {len(extracted_array)} items")
+                                    break
+                        if extracted_array:
+                            break
+                
+                # Last resort: look for any array that might contain test case-like objects
+                if not extracted_array:
+                    for key, value in test_data.items():
+                        if isinstance(value, list) and len(value) > 0:
+                            # Check if first item looks like a test case
+                            first_item = value[0]
+                            if isinstance(first_item, dict):
+                                test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description']
+                                if any(indicator in first_item for indicator in test_indicators):
+                                    extracted_array = value
+                                    self.logger.info(f"Found test case-like array at '{key}': {len(value)} items")
+                                    break
+                
+                if extracted_array:
+                    test_data = extracted_array
+                else:
+                    # Check if the entire dict is a single test case
+                    test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description', 'expected_status', 'status']
+                    if any(indicator in test_data for indicator in test_indicators):
+                        self.logger.info("Converting single test case object to array")
+                        test_data = [test_data]
+                    else:
+                        # Log the structure for debugging
+                        self.logger.error(f"Could not extract test cases from dict with keys: {list(test_data.keys())}")
+                        if os.getenv("CASECRAFT_DEBUG_KIMI"):
+                            import time
+                            debug_file = f"failed_response_{int(time.time())}.json"
+                            try:
+                                with open(debug_file, 'w', encoding='utf-8') as f:
+                                    json.dump(test_data, f, indent=2, ensure_ascii=False)
+                                self.logger.info(f"Failed response saved to {debug_file}")
+                            except Exception:
+                                pass
+                        raise TestGeneratorError(f"LLM response must be a JSON array of test cases. Got dict with keys: {list(test_data.keys())[:10]}")
+            else:
+                raise TestGeneratorError(f"LLM response must be a JSON array of test cases. Got {type(test_data).__name__}")
         
         # Validate and convert to TestCase objects
         test_cases = []

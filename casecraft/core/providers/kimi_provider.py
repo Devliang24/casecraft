@@ -43,9 +43,11 @@ class KimiProvider(LLMProvider):
         max_workers = int(os.getenv("CASECRAFT_KIMI_MAX_WORKERS", "2"))
         self._semaphore = asyncio.Semaphore(min(config.workers, max_workers))
         
+        # Set a reasonable default timeout for HTTP client
+        # Individual requests can override this
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            timeout=config.timeout,
+            timeout=httpx.Timeout(30.0, connect=10.0),  # 30s total, 10s connect
             headers={
                 "Authorization": f"Bearer {config.api_key}",
                 "Content-Type": "application/json"
@@ -123,46 +125,102 @@ class KimiProvider(LLMProvider):
         """
         # Log the raw content for debugging
         content_preview = content[:500] if len(content) > 500 else content
-        self.logger.debug(f"[Kimi] Unwrapping response, length: {len(content)}, preview: {content_preview}...")
+        self.logger.info(f"[Kimi] Unwrapping response, length: {len(content)}")
+        self.logger.debug(f"[Kimi] Raw response preview: {content_preview}...")
+        
+        # Save debug response if enabled
+        if os.getenv("CASECRAFT_DEBUG_KIMI"):
+            import time
+            debug_file = f"kimi_response_{int(time.time())}.json"
+            try:
+                with open(debug_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                self.logger.info(f"[Kimi] Debug response saved to {debug_file}")
+            except Exception as e:
+                self.logger.warning(f"[Kimi] Failed to save debug response: {e}")
         
         try:
             parsed = json.loads(content)
+            self.logger.debug(f"[Kimi] Parsed response type: {type(parsed)}")
             
             # If it's already an array, return as is
             if isinstance(parsed, list):
+                self.logger.info(f"[Kimi] Response is already array with {len(parsed)} items")
                 return content
             
             # If it's a dict, check for wrapped array
             if isinstance(parsed, dict):
+                self.logger.debug(f"[Kimi] Response is dict with keys: {list(parsed.keys())}")
+                
                 # Check common wrapper keys that Kimi might use
-                wrapper_keys = ['response', 'data', 'result', 'test_cases', 'tests', 'items']
+                wrapper_keys = [
+                    'response', 'data', 'result', 'test_cases', 'tests', 'items', 
+                    'testCases', 'test_case_list', 'cases', 'array', 'list',
+                    'content', 'output', 'generated', 'testdata'
+                ]
                 
                 for key in wrapper_keys:
                     if key in parsed and isinstance(parsed[key], list):
                         # Found wrapped array, unwrap it
                         unwrapped = parsed[key]
-                        self.logger.debug(f"[Kimi] Unwrapped array from '{key}' field: {len(unwrapped)} items")
+                        self.logger.info(f"[Kimi] Unwrapped array from '{key}' field: {len(unwrapped)} items")
                         return json.dumps(unwrapped, ensure_ascii=False, indent=2)
                 
-                # Check if it's a single object that should be wrapped in array
-                # This handles both test cases and simple objects
-                if any(key in parsed for key in ['test_id', 'id', 'test_name']):
-                    self.logger.debug("[Kimi] Single object detected, wrapping in array")
+                # Check if the entire dict looks like a single test case
+                test_case_indicators = [
+                    'test_id', 'id', 'test_name', 'name', 'method', 'path', 
+                    'description', 'expected_status', 'headers', 'body',
+                    'testId', 'testName', 'expectedStatus'
+                ]
+                
+                if any(key in parsed for key in test_case_indicators):
+                    self.logger.info("[Kimi] Single test case detected, wrapping in array")
                     return json.dumps([parsed], ensure_ascii=False, indent=2)
                 
-                # Log dict keys if no match found
-                self.logger.debug(f"[Kimi] Dict with keys {list(parsed.keys())[:10]} - no unwrapping applied")
+                # Check if there are nested objects that might contain arrays
+                for key, value in parsed.items():
+                    if isinstance(value, dict):
+                        for nested_key in wrapper_keys:
+                            if nested_key in value and isinstance(value[nested_key], list):
+                                unwrapped = value[nested_key]
+                                self.logger.info(f"[Kimi] Found nested array at '{key}.{nested_key}': {len(unwrapped)} items")
+                                return json.dumps(unwrapped, ensure_ascii=False, indent=2)
+                
+                # Last resort: check if any value is a list
+                for key, value in parsed.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        # Check if it looks like test cases
+                        first_item = value[0]
+                        if isinstance(first_item, dict) and any(indicator in first_item for indicator in test_case_indicators):
+                            self.logger.info(f"[Kimi] Found test case array at '{key}': {len(value)} items")
+                            return json.dumps(value, ensure_ascii=False, indent=2)
+                
+                # Log all keys for debugging
+                self.logger.warning(f"[Kimi] Could not find array in dict with keys: {list(parsed.keys())}")
+            
+            # If it's a string, maybe it's double-encoded JSON
+            if isinstance(parsed, str):
+                self.logger.debug("[Kimi] Response is string, checking for double-encoded JSON")
+                try:
+                    double_parsed = json.loads(parsed)
+                    if isinstance(double_parsed, list):
+                        self.logger.info(f"[Kimi] Found double-encoded JSON array with {len(double_parsed)} items")
+                        return json.dumps(double_parsed, ensure_ascii=False, indent=2)
+                except json.JSONDecodeError:
+                    pass
             
             # Return original content if no unwrapping needed
+            self.logger.warning("[Kimi] No unwrapping applied - returning original content")
             return content
             
         except json.JSONDecodeError as e:
             # If can't parse, return original content
-            self.logger.debug(f"[Kimi] Content is not valid JSON: {e}, returning as is")
+            self.logger.warning(f"[Kimi] Content is not valid JSON: {e}")
+            self.logger.debug(f"[Kimi] Invalid JSON content: {content[:200]}...")
             return content
         except Exception as e:
             # Any other error, return original content
-            self.logger.warning(f"[Kimi] Error unwrapping array response: {e}")
+            self.logger.error(f"[Kimi] Error unwrapping array response: {e}")
             return content
     
     async def _generate_non_stream(
@@ -379,16 +437,29 @@ class KimiProvider(LLMProvider):
         last_error = None
         # Read retry configuration from environment
         base_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_BASE_WAIT", "1.5"))
-        max_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_MAX_WAIT", "45"))
+        max_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_MAX_WAIT", "10"))  # Reduced from 45
         multiplier = float(os.getenv("CASECRAFT_KIMI_RETRY_MULTIPLIER", "2"))
         
+        # Track total time to prevent excessive retries
+        import time
+        start_time = time.time()
+        max_total_time = 45  # Maximum 45 seconds for all retries
+        
         for attempt in range(self.config.max_retries + 1):
+            # Check if we've exceeded total time limit
+            if time.time() - start_time > max_total_time:
+                self.logger.error(f"[Kimi] Exceeded maximum retry time of {max_total_time}s")
+                raise ProviderGenerationError(f"Request timeout after {max_total_time}s")
             try:
                 self.logger.info(f"[Kimi] Sending request to {endpoint} (attempt {attempt + 1}/{self.config.max_retries + 1})")
                 self.logger.debug(f"[Kimi] Request payload size: {len(json.dumps(payload))} bytes")
                 
-                # Add timeout to individual request
-                response = await self.client.post(endpoint, json=payload, timeout=30.0)
+                # Add timeout to individual request (25s to leave room for retries)
+                response = await self.client.post(
+                    endpoint, 
+                    json=payload, 
+                    timeout=httpx.Timeout(25.0, connect=5.0)
+                )
                 
                 self.logger.info(f"[Kimi] Received response with status {response.status_code}")
                 
@@ -534,10 +605,10 @@ class KimiProvider(LLMProvider):
             # Should not reach here
             raise ProviderGenerationError(f"Failed to generate test cases after {max_retries + 1} attempts")
         
-        # Apply timeout protection (60 seconds)
+        # Apply timeout protection (50 seconds total for all retries)
         try:
-            self.logger.info(f"[Kimi] Applying 60s timeout for generation")
-            return await asyncio.wait_for(_generate_with_retries(), timeout=60.0)
+            self.logger.info(f"[Kimi] Applying 50s timeout for generation")
+            return await asyncio.wait_for(_generate_with_retries(), timeout=50.0)
         except asyncio.TimeoutError:
             endpoint_id = endpoint.get_endpoint_id()
             self.logger.error(f"[Kimi] Generation timeout after 60s for {endpoint_id}")
