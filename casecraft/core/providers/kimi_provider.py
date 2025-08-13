@@ -121,6 +121,10 @@ class KimiProvider(LLMProvider):
         Returns:
             Unwrapped content (array as string) or original content
         """
+        # Log the raw content for debugging
+        content_preview = content[:500] if len(content) > 500 else content
+        self.logger.debug(f"[Kimi] Unwrapping response, length: {len(content)}, preview: {content_preview}...")
+        
         try:
             parsed = json.loads(content)
             
@@ -137,25 +141,28 @@ class KimiProvider(LLMProvider):
                     if key in parsed and isinstance(parsed[key], list):
                         # Found wrapped array, unwrap it
                         unwrapped = parsed[key]
-                        self.logger.debug(f"Unwrapped array from '{key}' field: {len(unwrapped)} items")
+                        self.logger.debug(f"[Kimi] Unwrapped array from '{key}' field: {len(unwrapped)} items")
                         return json.dumps(unwrapped, ensure_ascii=False, indent=2)
                 
                 # Check if it's a single object that should be wrapped in array
                 # This handles both test cases and simple objects
                 if any(key in parsed for key in ['test_id', 'id', 'test_name']):
-                    self.logger.debug("Single object detected, wrapping in array")
+                    self.logger.debug("[Kimi] Single object detected, wrapping in array")
                     return json.dumps([parsed], ensure_ascii=False, indent=2)
+                
+                # Log dict keys if no match found
+                self.logger.debug(f"[Kimi] Dict with keys {list(parsed.keys())[:10]} - no unwrapping applied")
             
             # Return original content if no unwrapping needed
             return content
             
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # If can't parse, return original content
-            self.logger.debug("Content is not valid JSON, returning as is")
+            self.logger.debug(f"[Kimi] Content is not valid JSON: {e}, returning as is")
             return content
         except Exception as e:
             # Any other error, return original content
-            self.logger.warning(f"Error unwrapping array response: {e}")
+            self.logger.warning(f"[Kimi] Error unwrapping array response: {e}")
             return content
     
     async def _generate_non_stream(
@@ -468,38 +475,65 @@ class KimiProvider(LLMProvider):
             llm_client = LLMClient(provider=self)
             self._test_generator = TestCaseGenerator(llm_client)
         
-        # Generate test cases
-        max_retries = 2  # Allow up to 2 retries if not enough test cases
-        for retry in range(max_retries + 1):
-            result = await self._test_generator.generate_test_cases(
-                endpoint,
-                progress_callback=progress_callback
-            )
+        # Wrap the generation logic with timeout
+        async def _generate_with_retries():
+            # Generate test cases
+            max_retries = 2  # Allow up to 2 retries if not enough test cases
+            endpoint_id = endpoint.get_endpoint_id()
             
-            # Check if we have minimum required test cases
-            test_count = len(result.test_cases.test_cases) if hasattr(result.test_cases, 'test_cases') else 0
+            self.logger.info(f"[Kimi] Starting generation for {endpoint_id}")
             
-            if test_count >= 5:
-                # Sufficient test cases generated
-                return result.test_cases, result.token_usage
-            elif retry < max_retries:
-                # Not enough test cases, log warning and retry
-                self.logger.warning(
-                    f"Kimi generated only {test_count} test cases for {endpoint.get_endpoint_id()}, "
-                    f"minimum 5 required. Retrying ({retry + 1}/{max_retries})..."
-                )
-                # Add a small delay before retry
-                await asyncio.sleep(2)
-            else:
-                # Final attempt still insufficient, log error but return what we have
-                self.logger.error(
-                    f"Kimi could only generate {test_count} test cases for {endpoint.get_endpoint_id()} "
-                    f"after {max_retries} retries. Minimum 5 required. Proceeding with partial results."
-                )
-                return result.test_cases, result.token_usage
+            for retry in range(max_retries + 1):
+                self.logger.info(f"[Kimi] Attempt {retry + 1}/{max_retries + 1} for {endpoint_id}")
+                
+                try:
+                    result = await self._test_generator.generate_test_cases(
+                        endpoint,
+                        progress_callback=progress_callback
+                    )
+                    
+                    # Check if we have minimum required test cases
+                    test_count = len(result.test_cases.test_cases) if hasattr(result.test_cases, 'test_cases') else 0
+                    
+                    self.logger.info(f"[Kimi] Generated {test_count} test cases for {endpoint_id}")
+                    
+                    if test_count >= 5:
+                        # Sufficient test cases generated
+                        self.logger.info(f"[Kimi] Success - sufficient test cases for {endpoint_id}")
+                        return result.test_cases, result.token_usage
+                    elif retry < max_retries:
+                        # Not enough test cases, log warning and retry
+                        self.logger.warning(
+                            f"[Kimi] Only {test_count} test cases for {endpoint_id}, "
+                            f"minimum 5 required. Retrying ({retry + 1}/{max_retries})..."
+                        )
+                        # Add a small delay before retry
+                        await asyncio.sleep(2)
+                    else:
+                        # Final attempt still insufficient, log error but return what we have
+                        self.logger.error(
+                            f"[Kimi] Only {test_count} test cases for {endpoint_id} "
+                            f"after {max_retries} retries. Minimum 5 required. Proceeding with partial results."
+                        )
+                        return result.test_cases, result.token_usage
+                        
+                except Exception as e:
+                    self.logger.error(f"[Kimi] Error during attempt {retry + 1} for {endpoint_id}: {e}")
+                    if retry >= max_retries:
+                        raise
+                    await asyncio.sleep(2)
+            
+            # Should not reach here
+            raise ProviderGenerationError(f"Failed to generate test cases after {max_retries + 1} attempts")
         
-        # Fallback (should not reach here)
-        return result.test_cases, result.token_usage
+        # Apply timeout protection (60 seconds)
+        try:
+            self.logger.info(f"[Kimi] Applying 60s timeout for generation")
+            return await asyncio.wait_for(_generate_with_retries(), timeout=60.0)
+        except asyncio.TimeoutError:
+            endpoint_id = endpoint.get_endpoint_id()
+            self.logger.error(f"[Kimi] Generation timeout after 60s for {endpoint_id}")
+            raise ProviderGenerationError(f"Generation timeout after 60s for {endpoint_id}")
     
     def get_max_workers(self) -> int:
         """Get maximum concurrent workers.
