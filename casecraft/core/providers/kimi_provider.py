@@ -384,8 +384,13 @@ class KimiProvider(LLMProvider):
         
         for attempt in range(self.config.max_retries + 1):
             try:
-                self.logger.debug(f"Attempting request (attempt {attempt + 1}/{self.config.max_retries + 1})")
-                response = await self.client.post(endpoint, json=payload)
+                self.logger.info(f"[Kimi] Sending request to {endpoint} (attempt {attempt + 1}/{self.config.max_retries + 1})")
+                self.logger.debug(f"[Kimi] Request payload size: {len(json.dumps(payload))} bytes")
+                
+                # Add timeout to individual request
+                response = await self.client.post(endpoint, json=payload, timeout=30.0)
+                
+                self.logger.info(f"[Kimi] Received response with status {response.status_code}")
                 
                 # Check for rate limiting
                 if response.status_code == 429:
@@ -410,7 +415,10 @@ class KimiProvider(LLMProvider):
                         )
                 
                 response.raise_for_status()
-                return response.json(), attempt
+                self.logger.info(f"[Kimi] Parsing JSON response...")
+                json_response = response.json()
+                self.logger.info(f"[Kimi] Successfully parsed response")
+                return json_response, attempt
                 
             except httpx.HTTPStatusError as e:
                 last_error = e
