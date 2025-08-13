@@ -167,6 +167,55 @@ class ConfigManager:
         return overrides
     
     
+    def get_provider_config(self, provider_name: str) -> Dict[str, Any]:
+        """Get configuration for a specific provider.
+        
+        Args:
+            provider_name: Provider name (glm, kimi, qwen, etc.)
+            
+        Returns:
+            Provider configuration dictionary
+            
+        Raises:
+            ConfigError: If required configuration is missing
+        """
+        provider_upper = provider_name.upper()
+        
+        # Read provider-specific configuration
+        config = {
+            'name': provider_name,
+            'model': os.getenv(f"CASECRAFT_{provider_upper}_MODEL"),
+            'api_key': os.getenv(f"CASECRAFT_{provider_upper}_API_KEY"),
+            'base_url': os.getenv(f"CASECRAFT_{provider_upper}_BASE_URL"),
+            
+            # Common configuration with fallbacks
+            'timeout': int(os.getenv(f"CASECRAFT_{provider_upper}_TIMEOUT", 
+                                     os.getenv("CASECRAFT_LLM_TIMEOUT", "120"))),
+            'max_retries': int(os.getenv(f"CASECRAFT_{provider_upper}_MAX_RETRIES",
+                                         os.getenv("CASECRAFT_LLM_MAX_RETRIES", "3"))),
+            'temperature': float(os.getenv(f"CASECRAFT_{provider_upper}_TEMPERATURE",
+                                           os.getenv("CASECRAFT_LLM_TEMPERATURE", "0.7"))),
+            'stream': os.getenv(f"CASECRAFT_{provider_upper}_STREAM",
+                               os.getenv("CASECRAFT_LLM_STREAM", "true")).lower() == "true",
+            'workers': int(os.getenv(f"CASECRAFT_{provider_upper}_WORKERS",
+                                     os.getenv("CASECRAFT_PROCESSING_WORKERS", "1")))
+        }
+        
+        # Validate required configuration
+        if not config['api_key']:
+            raise ConfigError(
+                f"API key not configured for {provider_name}. "
+                f"Please set CASECRAFT_{provider_upper}_API_KEY in .env file"
+            )
+        
+        if not config['model']:
+            raise ConfigError(
+                f"Model not configured for {provider_name}. "
+                f"Please set CASECRAFT_{provider_upper}_MODEL in .env file"
+            )
+        
+        return config
+    
     def validate_config(self, config: CaseCraftConfig) -> None:
         """Validate configuration completeness.
         

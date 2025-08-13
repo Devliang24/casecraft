@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, Optional, Callable
 import httpx
 
@@ -30,12 +31,17 @@ class QwenProvider(LLMProvider):
             config: Provider configuration
         """
         super().__init__(config)
-        # DashScope API endpoint
-        self.base_url = config.base_url or "https://dashscope.aliyuncs.com/api/v1"
+        # DashScope API endpoint - use configured or default
+        self.base_url = config.base_url
+        if not self.base_url:
+            # Use default if not configured
+            self.base_url = "https://dashscope.aliyuncs.com/api/v1"
+            self.logger.info(f"Using default base URL: {self.base_url}")
         self.logger = get_logger(f"provider.{self.name}")
         
-        # Qwen supports up to 3 concurrent requests
-        self._semaphore = asyncio.Semaphore(min(config.workers, 3))
+        # Configure concurrent requests from environment
+        max_workers = int(os.getenv("CASECRAFT_QWEN_MAX_WORKERS", "3"))
+        self._semaphore = asyncio.Semaphore(min(config.workers, max_workers))
         
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -82,8 +88,8 @@ class QwenProvider(LLMProvider):
                 "model": self.config.model,  # e.g., "qwen-max", "qwen-plus", "qwen-turbo"
                 "messages": messages,  # Direct messages, not nested in input
                 "temperature": kwargs.get("temperature", self.config.temperature),
-                "top_p": kwargs.get("top_p", 0.9),
-                "max_tokens": kwargs.get("max_tokens", 2000),
+                "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
+                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
                 "stream": self.config.stream
             }
             
@@ -147,10 +153,12 @@ class QwenProvider(LLMProvider):
         # Extract content from first choice
         content = ""
         finish_reason = None
-        if choices:
-            message = choices[0].get("message", {})
-            content = message.get("content", "")
-            finish_reason = choices[0].get("finish_reason")
+        if choices and len(choices) > 0 and choices[0] is not None:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                message = choice.get("message", {})
+                content = message.get("content", "")
+                finish_reason = choice.get("finish_reason")
         
         # Create token usage (OpenAI format)
         token_usage = None
@@ -229,44 +237,57 @@ class QwenProvider(LLMProvider):
                         try:
                             data = json.loads(data_str)
                             
-                            # Extract content from OpenAI format
-                            choices = data.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                if "content" in delta:
-                                    # In streaming mode, each message contains incremental text
-                                    content_chunks.append(delta["content"])
+                            # Safely extract content from OpenAI format
+                            choices = data.get("choices", []) if isinstance(data, dict) else []
+                            if choices and len(choices) > 0 and choices[0] is not None:
+                                choice = choices[0]
+                                if isinstance(choice, dict):
+                                    delta = choice.get("delta", {})
+                                    if isinstance(delta, dict) and "content" in delta:
+                                        # In streaming mode, each message contains incremental text
+                                        content_chunks.append(delta["content"])
+                                        
+                                        # Update progress
+                                        if progress_callback:
+                                            try:
+                                                progress = 0.2 + min(len(content_chunks) / 100, 0.7)
+                                                progress_callback(progress)
+                                            except Exception as cb_err:
+                                                self.logger.warning(f"Progress callback error: {cb_err}")
                                     
-                                    # Update progress
-                                    if progress_callback:
-                                        progress = 0.2 + min(len(content_chunks) / 100, 0.7)
-                                        progress_callback(progress)
-                                
-                                # Get finish reason from last message
-                                if choices[0].get("finish_reason"):
-                                    finish_reason = choices[0]["finish_reason"]
+                                    # Get finish reason from last message
+                                    finish_reason_value = choice.get("finish_reason")
+                                    if finish_reason_value:
+                                        finish_reason = finish_reason_value
                             
-                            # Get usage data (OpenAI format)
-                            if "usage" in data:
+                            # Get usage data (OpenAI format) - safely
+                            if isinstance(data, dict) and "usage" in data:
                                 usage_data = data["usage"]
-                                token_usage = TokenUsage(
-                                    prompt_tokens=usage_data.get("prompt_tokens", 0),
-                                    completion_tokens=usage_data.get("completion_tokens", 0),
-                                    total_tokens=usage_data.get("total_tokens", 0),
-                                    model=self.config.model
-                                )
+                                if isinstance(usage_data, dict):
+                                    token_usage = TokenUsage(
+                                        prompt_tokens=usage_data.get("prompt_tokens", 0),
+                                        completion_tokens=usage_data.get("completion_tokens", 0),
+                                        total_tokens=usage_data.get("total_tokens", 0),
+                                        model=self.config.model
+                                    )
                             
-                            # Get request ID
-                            if "id" in data:
+                            # Get request ID - safely
+                            if isinstance(data, dict) and "id" in data:
                                 request_id = data["id"]
                                 
-                        except json.JSONDecodeError:
-                            self.logger.warning(f"Failed to parse SSE data: {data_str}")
+                        except json.JSONDecodeError as json_err:
+                            self.logger.warning(f"Failed to parse SSE data: {data_str[:100]}... Error: {json_err}")
+                            continue
+                        except Exception as parse_err:
+                            self.logger.error(f"Error processing streaming data: {parse_err}, Data type: {type(data)}")
                             continue
                 
                 # Update to 100%
                 if progress_callback:
-                    progress_callback(1.0)
+                    try:
+                        progress_callback(1.0)
+                    except Exception as cb_err:
+                        self.logger.warning(f"Final progress callback error: {cb_err}")
                 
                 return LLMResponse(
                     content="".join(content_chunks),
@@ -280,7 +301,9 @@ class QwenProvider(LLMProvider):
                 )
                 
         except Exception as e:
-            self.logger.error(f"Streaming generation failed: {e}")
+            self.logger.error(f"Streaming generation failed: {e}, Error type: {type(e).__name__}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             raise ProviderGenerationError(f"Streaming failed: {e}") from e
     
     async def _make_request_with_retry(
@@ -300,7 +323,10 @@ class QwenProvider(LLMProvider):
             Tuple of (response data, retry count)
         """
         last_error = None
-        base_wait = 1.0  # Qwen has lower rate limits, start with 1 second
+        # Read retry configuration from environment
+        base_wait = float(os.getenv("CASECRAFT_QWEN_RETRY_BASE_WAIT", "1.0"))
+        max_wait = float(os.getenv("CASECRAFT_QWEN_RETRY_MAX_WAIT", "30"))
+        multiplier = float(os.getenv("CASECRAFT_QWEN_RETRY_MULTIPLIER", "2"))
         
         for attempt in range(self.config.max_retries + 1):
             try:
@@ -312,9 +338,9 @@ class QwenProvider(LLMProvider):
                     self.logger.warning(f"Rate limit hit on attempt {attempt + 1}")
                     
                     if attempt < self.config.max_retries:
-                        # Exponential backoff
-                        wait_time = base_wait * (2 ** attempt)
-                        wait_time = min(wait_time, 30)  # Cap at 30 seconds
+                        # Exponential backoff with configurable multiplier
+                        wait_time = base_wait * (multiplier ** attempt)
+                        wait_time = min(wait_time, max_wait)  # Cap at max_wait
                         
                         self.logger.info(f"Waiting {wait_time:.2f}s before retry...")
                         await asyncio.sleep(wait_time)
@@ -377,40 +403,9 @@ class QwenProvider(LLMProvider):
         if not self._test_generator:
             # Create a wrapper for compatibility
             from casecraft.core.generation.llm_client import LLMClient
-            from casecraft.models.config import LLMConfig
             
-            # Convert provider config to LLM config
-            llm_config = LLMConfig(
-                model=self.config.model,
-                api_key=self.config.api_key,
-                base_url=self.base_url,
-                timeout=self.config.timeout,
-                max_retries=self.config.max_retries,
-                temperature=self.config.temperature,
-                stream=self.config.stream
-            )
-            
-            # Create a custom LLM client that uses this provider
-            class QwenLLMClient(LLMClient):
-                def __init__(self, config, provider):
-                    super().__init__(config)
-                    self.provider = provider
-                
-                async def generate(self, prompt, system_prompt=None, progress_callback=None, **kwargs):
-                    response = await self.provider.generate(
-                        prompt, system_prompt, progress_callback, **kwargs
-                    )
-                    # Convert to LLMClient response format
-                    from casecraft.core.generation.llm_client import LLMResponse as ClientResponse
-                    return ClientResponse(
-                        content=response.content,
-                        model=response.model,
-                        usage=response.token_usage.__dict__ if response.token_usage else None,
-                        finish_reason=response.metadata.get("finish_reason"),
-                        retry_count=response.metadata.get("retry_count", 0)
-                    )
-            
-            llm_client = QwenLLMClient(llm_config, self)
+            # Create LLMClient with this provider (new simplified approach)
+            llm_client = LLMClient(provider=self)
             self._test_generator = TestCaseGenerator(llm_client)
         
         # Generate test cases
@@ -425,9 +420,11 @@ class QwenProvider(LLMProvider):
         """Get maximum concurrent workers.
         
         Returns:
-            Maximum number of concurrent workers (3 for Qwen)
+            Maximum number of concurrent workers
         """
-        return min(self.config.workers, 3)  # Qwen supports up to 3 concurrent requests
+        # Read from environment variable with default fallback
+        max_workers = int(os.getenv("CASECRAFT_QWEN_MAX_WORKERS", "3"))
+        return min(self.config.workers, max_workers)
     
     def validate_config(self) -> bool:
         """Validate provider configuration.
@@ -443,10 +440,8 @@ class QwenProvider(LLMProvider):
             self.logger.error("Model name is required for Qwen provider")
             return False
         
-        # Validate model name
-        valid_models = ["qwen-max", "qwen-plus", "qwen-turbo", "qwen-max-longcontext"]
-        if not any(self.config.model.startswith(m) for m in valid_models):
-            self.logger.warning(f"Unknown Qwen model: {self.config.model}")
+        # Log the model being used (no validation - let API handle it)
+        self.logger.info(f"Using Qwen model: {self.config.model}")
         
         return True
     

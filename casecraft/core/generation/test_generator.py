@@ -190,7 +190,14 @@ class TestCaseGenerator:
                     system_prompt = self._get_system_prompt()
                 
                 # Generate with streaming support
-                if self.llm_client.config.stream and attempt == 0:  # Only show streaming on first attempt
+                # Check if streaming is enabled (handle both provider and legacy config modes)
+                is_streaming = False
+                if hasattr(self.llm_client, 'provider') and self.llm_client.provider:
+                    is_streaming = getattr(self.llm_client.provider.config, 'stream', False)
+                elif hasattr(self.llm_client, 'config') and self.llm_client.config:
+                    is_streaming = getattr(self.llm_client.config, 'stream', False)
+                
+                if is_streaming and attempt == 0:  # Only show streaming on first attempt
                     self.logger.info(f"Using streaming mode for {endpoint.get_endpoint_id()}")
                 
                 response = await self.llm_client.generate(

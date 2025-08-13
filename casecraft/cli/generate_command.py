@@ -469,34 +469,76 @@ async def _run_single_provider(
     provider: str,
     model: Optional[str] = None
 ) -> None:
-    """Run generation with a single provider."""
+    """Run generation with a single provider - unified handling for all providers."""
     
-    # Load configuration for single provider
-    config = await _load_single_provider_config(provider, output, workers, force, dry_run, organize_by, verbose, model)
+    # 1. Initialize configuration manager (auto-loads .env)
+    config_manager = ConfigManager(load_env=True)
     
-    # Register the provider
+    # 2. Get provider configuration
+    try:
+        provider_config_dict = config_manager.get_provider_config(provider)
+        
+        # Override model if specified via CLI
+        if model:
+            provider_config_dict['model'] = model
+            
+    except ConfigError as e:
+        console.print(f"[red]Configuration Error:[/red] {e}")
+        raise click.ClickException(str(e))
+    
+    # 3. Register provider class to Registry
     _register_provider(provider)
     
-    # Show configuration
-    if not quiet:
-        _show_single_provider_config(provider, config, verbose)
+    # 4. Create provider configuration object
+    from casecraft.core.providers.base import ProviderConfig
+    from casecraft.core.providers.registry import ProviderRegistry
     
-    # Use enhanced state manager
+    provider_config = ProviderConfig(**provider_config_dict)
+    
+    # 5. Get provider instance
+    try:
+        provider_instance = ProviderRegistry.get_provider(provider, provider_config)
+    except Exception as e:
+        console.print(f"[red]Provider Error:[/red] Failed to initialize {provider}: {e}")
+        raise click.ClickException(str(e))
+    
+    # 6. Create base configuration (for Engine's other components)
+    base_config = config_manager.create_default_config()
+    
+    # Apply CLI parameter overrides
+    base_config.output.directory = output
+    base_config.processing.workers = workers
+    base_config.processing.force_regenerate = force
+    base_config.processing.dry_run = dry_run
+    if organize_by:
+        base_config.output.organize_by_tag = (organize_by == "tag")
+    
+    # 7. Show configuration
+    if not quiet:
+        _show_provider_config(provider, provider_config, verbose)
+    
+    # 8. Initialize state manager
     state_manager = EnhancedStateManager()
     
-    # Initialize engine
-    engine = GeneratorEngine(config, console, verbose=verbose, quiet=quiet)
+    # 9. Create engine with provider instance
+    engine = GeneratorEngine(
+        base_config, 
+        console, 
+        verbose=verbose, 
+        quiet=quiet,
+        provider_instance=provider_instance
+    )
     
-    # Convert tuples to lists
+    # 10. Convert parameter formats
     include_tags = list(include_tag) if include_tag else None
     exclude_tags = list(exclude_tag) if exclude_tag else None
     include_paths = list(include_path) if include_path else None
     
-    # Track start
+    # 11. Load state (if not dry run)
     if not dry_run:
         await state_manager.load_state()
     
-    # Generate test cases
+    # 12. Execute generation
     result = await engine.generate(
         source=source,
         include_tags=include_tags,
@@ -506,9 +548,8 @@ async def _run_single_provider(
         dry_run=dry_run
     )
     
-    # Update statistics
+    # 13. Update statistics
     if not dry_run:
-        # Update overall statistics first
         await state_manager.update_statistics(
             total_endpoints=result.total_endpoints,
             generated_count=result.generated_count,
@@ -518,15 +559,13 @@ async def _run_single_provider(
         
         # Update provider-specific statistics if we have token usage
         if result.has_token_usage():
-            # Get actual token usage from result
             token_summary = result.get_token_summary()
             total_tokens = token_summary.get('total_tokens', 0)
             
-            # Update provider stats for successful generation
             if result.generated_count > 0:
                 state_manager.complete_provider_request(
                     provider=provider,
-                    endpoint_id="batch",  # Use a generic ID for batch operations
+                    endpoint_id="batch",
                     success=True,
                     tokens=total_tokens
                 )
@@ -535,7 +574,7 @@ async def _run_single_provider(
         state = await state_manager.load_state()
         await state_manager.save_state(state)
     
-    # Show results
+    # 14. Show results
     if not quiet:
         _show_results_with_provider_stats(result, state_manager, dry_run)
 
@@ -762,29 +801,30 @@ async def _load_multi_provider_config(
     return multi_config
 
 
-def _show_single_provider_config(provider: str, config: CaseCraftConfig, verbose: bool) -> None:
-    """Show single provider configuration."""
-    console.print(f"\n[bold blue]━━━━━━ 🚀 LLM Provider Config ━━━━━━[/bold blue]")
+def _show_provider_config(provider: str, config: ProviderConfig, verbose: bool) -> None:
+    """Show provider configuration - unified format."""
+    console.print(f"\n[bold blue]━━━━━━ 🚀 Generation Config ━━━━━━[/bold blue]")
     
     table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column(width=2, justify="left")   # emoji 列
-    table.add_column(width=14, justify="left")  # 标签列（从 12 改为 14）
-    table.add_column(justify="left")            # 值列
+    table.add_column(width=2, justify="left")   # emoji column
+    table.add_column(width=12, justify="left")  # label column
+    table.add_column(justify="left")            # value column
     
-    # 基本信息
-    table.add_row("🤖", "Provider:", f"[cyan bold]{provider}[/cyan bold]")
-    table.add_row("📦", "Model:", f"[cyan]{config.llm.model}[/cyan]")
-    table.add_row("🌐", "Base URL:", f"[dim]{config.llm.base_url}[/dim]")
+    # Basic information
+    table.add_row("🤖", "Provider:", f"[cyan bold]{provider.upper()}[/cyan bold]")
+    table.add_row("📦", "Model:", f"[cyan]{config.model}[/cyan]")
+    table.add_row("🌐", "Base URL:", f"[dim]{config.base_url}[/dim]")
     
-    # 功能配置
-    table.add_row("🧠", "Think:", f"[{'green' if config.llm.think else 'dim'}]{config.llm.think}[/]")
-    table.add_row("📡", "Stream:", f"[{'green' if config.llm.stream else 'dim'}]{config.llm.stream}[/]")
+    # Feature configuration
+    stream_color = "green" if config.stream else "dim"
+    table.add_row("📡", "Stream:", f"[{stream_color}]{config.stream}[/{stream_color}]")
+    table.add_row("⚡", "Workers:", f"[yellow]{config.workers}[/yellow]")
     
-    # 性能参数 - 使用单字符 emoji 避免对齐问题
-    table.add_row("🔥", "Temperature:", f"[yellow]{config.llm.temperature:.1f}[/yellow]")
-    table.add_row("⚡", "Workers:", f"[yellow]{config.processing.workers}[/yellow]")
-    table.add_row("⏰", "Timeout:", f"[blue]{config.llm.timeout}s[/blue]")
-    table.add_row("🔄", "Max Retries:", f"[blue]{config.llm.max_retries}[/blue]")
+    if verbose:
+        # Detailed parameters
+        table.add_row("🔥", "Temperature:", f"[yellow]{config.temperature:.1f}[/yellow]")
+        table.add_row("⏰", "Timeout:", f"[blue]{config.timeout}s[/blue]")
+        table.add_row("🔄", "Max Retries:", f"[blue]{config.max_retries}[/blue]")
     
     console.print(table)
     console.print("[dim]──────────────────────────────────[/dim]\n")

@@ -78,6 +78,9 @@ class MultiProviderEngine:
         elif strategy_name == "manual":
             # Manual strategy doesn't need a strategy object
             return None
+        elif strategy_name == "single":
+            # Single provider mode - use first provider only
+            return RoundRobinStrategy(active_providers[:1] if active_providers else [])
         else:
             # Default to round robin
             self.logger.warning(f"Unknown strategy {strategy_name}, using round_robin")

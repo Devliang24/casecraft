@@ -32,26 +32,21 @@ class LLMResponse(BaseModel):
 
 
 class LLMClient:
-    """LLM API client implementation (currently using BigModel GLM-4.5-X)."""
+    """Universal LLM client adapter for all providers."""
     
-    def __init__(self, config: LLMConfig):
-        """Initialize BigModel client.
+    def __init__(self, provider):
+        """Initialize LLM client.
         
         Args:
-            config: LLM configuration
+            provider: LLMProvider instance (required)
         """
-        self.config = config
-        self.base_url = config.base_url or "https://open.bigmodel.cn/api/paas/v4"
-        self._request_lock = asyncio.Lock()  # Ensure single concurrency
         self.logger = get_logger("llm_client")
-        self.client = httpx.AsyncClient(
-            base_url=self.base_url,
-            timeout=config.timeout,
-            headers={
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json"
-            }
-        )
+        
+        if not provider:
+            raise ValueError("Provider instance is required")
+            
+        self.provider = provider
+        self.config = getattr(provider, 'config', None)
     
     async def generate(
         self,
@@ -60,11 +55,12 @@ class LLMClient:
         progress_callback: Optional[callable] = None,
         **kwargs
     ) -> LLMResponse:
-        """Generate response using BigModel API with single concurrency.
+        """Generate response using provider.
         
         Args:
             prompt: User prompt
             system_prompt: Optional system prompt
+            progress_callback: Progress callback function
             **kwargs: Additional generation parameters
             
         Returns:
@@ -72,374 +68,32 @@ class LLMClient:
             
         Raises:
             LLMError: If generation fails
-            LLMRateLimitError: If rate limit is exceeded
         """
-        async with self._request_lock:  # Serialize all requests
-            messages = []
-            
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            
-            messages.append({"role": "user", "content": prompt})
-            
-            payload = {
-                "model": self.config.model,
-                "messages": messages,
-                "think": self.config.think,
-                "stream": self.config.stream,
-                "temperature": kwargs.get("temperature", self.config.temperature)
-            }
-            
-            # Log request details for debugging
-            self.logger.debug(f"LLM request - Model: {payload['model']}, Messages: {len(messages)} messages")
-            self.logger.debug(f"LLM request payload keys: {list(payload.keys())}")
-            
-            try:
-                # Check if streaming is enabled
-                if self.config.stream:
-                    return await self._generate_stream(messages, kwargs.get("temperature", self.config.temperature), progress_callback)
-                else:
-                    # Non-streaming mode with progress updates
-                    import asyncio
-                    
-                    # Task 4: Update progress to 10% when starting
-                    if progress_callback:
-                        try:
-                            progress_callback(0.1)  # 10% - Starting request
-                            self.logger.debug("Progress update: 10% - Starting request")
-                        except Exception as e:
-                            self.logger.warning(f"Progress callback error: {e}")
-                    
-                    # Task 5: Create async task for the actual request
-                    request_task = asyncio.create_task(
-                        self._make_request_with_retry("/chat/completions", payload, progress_callback)
-                    )
-                    
-                    # Task 6: Simulate progress while waiting (10%-80%)
-                    if progress_callback:
-                        try:
-                            start_time = asyncio.get_event_loop().time()
-                            progress_update_interval = 0.5  # Update every 500ms
-                            
-                            while not request_task.done():
-                                await asyncio.sleep(progress_update_interval)
-                                elapsed = asyncio.get_event_loop().time() - start_time
-                                
-                                # Gradually increase progress from 10% to 80% over 60 seconds
-                                # Use a logarithmic curve for more realistic progress
-                                progress_ratio = min(elapsed / 60, 1.0)
-                                # Logarithmic progress curve
-                                simulated_progress = 0.1 + (0.7 * (1 - (1 / (1 + progress_ratio * 9))))
-                                simulated_progress = min(simulated_progress, 0.8)  # Cap at 80%
-                                
-                                progress_callback(simulated_progress)
-                                self.logger.debug(f"Progress update: {simulated_progress:.1%} - Waiting for response")
-                        except Exception as e:
-                            self.logger.warning(f"Progress simulation error: {e}")
-                    
-                    # Get the response
-                    response, retry_count = await request_task
-                    
-                    # Task 7: Update progress to 90% after receiving response
-                    if progress_callback:
-                        try:
-                            progress_callback(0.9)  # 90% - Processing response
-                            self.logger.debug("Progress update: 90% - Processing response")
-                        except Exception as e:
-                            self.logger.warning(f"Progress callback error: {e}")
-                    
-                    # Log successful response details
-                    self.logger.debug(f"LLM response received - Status: success, Retry count: {retry_count}")
-                    if response.get("usage"):
-                        usage = response["usage"]
-                        self.logger.debug(f"Token usage - Prompt: {usage.get('prompt_tokens', 0)}, "
-                                        f"Completion: {usage.get('completion_tokens', 0)}, "
-                                        f"Total: {usage.get('total_tokens', 0)}")
-                    
-                    choice = response["choices"][0]
-                    return LLMResponse(
-                        content=choice["message"]["content"],
-                        model=self.config.model,
-                        usage=response.get("usage"),
-                        finish_reason=choice.get("finish_reason"),
-                        retry_count=retry_count
-                    )
-                
-            except Exception as e:
-                # Log detailed error information
-                self.logger.error(f"LLM request failed: {str(e)}")
-                self.logger.debug(f"Request details - URL: {self.base_url}/chat/completions")
-                self.logger.debug(f"Request payload (truncated): {str(payload)[:200]}...")
-                raise LLMError(f"BigModel API error: {e}") from e
-    
-    async def _make_request_with_retry(
-        self, 
-        endpoint: str, 
-        payload: Dict[str, Any],
-        progress_callback: Optional[callable] = None
-    ) -> tuple[Dict[str, Any], int]:
-        """Make HTTP request with smart retry logic.
-        
-        Args:
-            endpoint: API endpoint
-            payload: Request payload
-            
-        Returns:
-            Tuple of (response data, retry count)
-            
-        Raises:
-            LLMError: If request fails
-            LLMRateLimitError: If rate limit exceeded
-        """
-        last_error = None
-        base_wait = 2.0  # Base wait time in seconds
-        current_progress = 0.1  # Track current progress for retry scenarios
-        
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                self.logger.debug(f"Attempting HTTP request (attempt {attempt + 1}/{self.config.max_retries + 1})")
-                response = await self.client.post(endpoint, json=payload)
-                
-                # Log response status and headers for debugging
-                self.logger.debug(f"HTTP response status: {response.status_code}")
-                self.logger.debug(f"Response headers: {dict(response.headers)}")
-                
-                if response.status_code == 429:
-                    # Rate limit hit - use exponential backoff with jitter
-                    self.logger.warning(f"Rate limit hit (429) on attempt {attempt + 1}")
-                    
-                    if attempt < self.config.max_retries:
-                        # Task 8: Progress rollback on retry
-                        if progress_callback:
-                            # Roll back progress by 30% but not below 10%
-                            current_progress = max(current_progress * 0.7, 0.1)
-                            try:
-                                progress_callback(current_progress)
-                                self.logger.debug(f"Progress rollback on retry: {current_progress:.1%}")
-                            except Exception as e:
-                                self.logger.warning(f"Progress callback error during retry: {e}")
-                        
-                        # Try to get retry-after header
-                        retry_after = response.headers.get('retry-after')
-                        if retry_after:
-                            wait_time = float(retry_after) + (0.5 * attempt)
-                            self.logger.debug(f"Using retry-after header: {retry_after}s + jitter")
-                        else:
-                            # Exponential backoff with jitter
-                            wait_time = base_wait * (2 ** attempt) + (0.1 * attempt)
-                            wait_time = min(wait_time, 60)  # Cap at 60 seconds
-                            self.logger.debug(f"Using exponential backoff: {wait_time}s")
-                        
-                        self.logger.info(f"Waiting {wait_time:.2f}s before retry...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        error_msg = (
-                            f"Rate limit exceeded after {self.config.max_retries} retries. "
-                            f"BigModel only supports single concurrency."
-                        )
-                        self.logger.error(error_msg)
-                        raise LLMRateLimitError(error_msg)
-                
-                response.raise_for_status()
-                return response.json(), attempt  # Return response and retry count
-                
-            except httpx.HTTPStatusError as e:
-                last_error = e
-                status_code = e.response.status_code
-                
-                # Log detailed error information
-                self.logger.error(f"HTTP status error {status_code}: {e}")
-                try:
-                    response_text = e.response.text
-                    self.logger.debug(f"Response body: {response_text[:500]}...")
-                except Exception:
-                    self.logger.debug("Could not read response body")
-                
-                if status_code == 429:
-                    # Already handled above
-                    continue
-                elif status_code >= 500:
-                    # Server error - retry with backoff
-                    self.logger.warning(f"Server error {status_code} on attempt {attempt + 1}, retrying...")
-                    if attempt < self.config.max_retries:
-                        # Task 8: Progress rollback on server error retry
-                        if progress_callback:
-                            # Roll back progress by 30% but not below 10%
-                            current_progress = max(current_progress * 0.7, 0.1)
-                            try:
-                                progress_callback(current_progress)
-                                self.logger.debug(f"Progress rollback on server error: {current_progress:.1%}")
-                            except Exception as e:
-                                self.logger.warning(f"Progress callback error during retry: {e}")
-                        
-                        wait_time = base_wait * (attempt + 1)
-                        self.logger.info(f"Waiting {wait_time}s before retry...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                else:
-                    # Client error - don't retry
-                    error_msg = f"HTTP error {status_code}: {e}"
-                    self.logger.error(f"Client error (no retry): {error_msg}")
-                    raise LLMError(error_msg)
-                    
-            except httpx.RequestError as e:
-                last_error = e
-                self.logger.error(f"Network/request error on attempt {attempt + 1}: {e}")
-                
-                if attempt < self.config.max_retries:
-                    # Network error - retry with backoff
-                    wait_time = base_wait * (attempt + 1)
-                    self.logger.info(f"Network error, waiting {wait_time}s before retry...")
-                    await asyncio.sleep(wait_time)
-                    continue
-        
-        # All retries exhausted
-        error_msg = f"Request failed after {self.config.max_retries + 1} attempts: {last_error}"
-        self.logger.error(f"All retry attempts exhausted: {error_msg}")
-        raise LLMError(error_msg)
-    
-    async def _generate_stream(
-        self,
-        messages: list,
-        temperature: float,
-        progress_callback: Optional[callable] = None
-    ) -> LLMResponse:
-        """Generate response using streaming API.
-        
-        Args:
-            messages: Messages to send
-            temperature: Temperature parameter
-            
-        Returns:
-            Complete LLM response
-        """
-        import json
-        from rich.live import Live
-        from rich.text import Text
-        
-        payload = {
-            "model": self.config.model,
-            "messages": messages,
-            "think": self.config.think,
-            "stream": True,
-            "temperature": temperature
-        }
-        
-        self.logger.debug(f"Starting streaming request to {self.base_url}/chat/completions")
-        
-        # Accumulate the full response
-        full_content = ""
-        usage_data = None
-        finish_reason = None
-        retry_count = 0
-        
-        # No need for separate console display if we have progress callback
-        show_console_output = progress_callback is None
-        
-        if show_console_output:
-            # Display streaming progress only if no progress callback
-            from rich.console import Console
-            console = Console()
-            console.print("  [cyan]📝 正在生成测试用例...[/cyan]", end="\r")
-        
         try:
-            # Make streaming request
-            async with self.client.stream('POST', '/chat/completions', json=payload) as response:
-                response.raise_for_status()
-                
-                # Process SSE stream
-                async for line in response.aiter_lines():
-                    if line.startswith('data: '):
-                        data_str = line[6:]  # Remove 'data: ' prefix
-                        
-                        if data_str == '[DONE]':
-                            break
-                        
-                        try:
-                            data = json.loads(data_str)
-                            
-                            # Extract delta content
-                            if 'choices' in data and len(data['choices']) > 0:
-                                choice = data['choices'][0]
-                                if 'delta' in choice and 'content' in choice['delta']:
-                                    chunk = choice['delta']['content']
-                                    full_content += chunk
-                                    
-                                    # Update display with current progress, but not too frequently
-                                    # Only update when we have meaningful changes
-                                    if len(full_content) % 100 == 0 or '"name":' in chunk:  # Update every 100 chars or when a name appears
-                                        if '"name":' in full_content:
-                                            # Try to extract test case names
-                                            import re
-                                            names = re.findall(r'"name":\s*"([^"]+)"', full_content)
-                                            if names:
-                                                # Update progress callback if provided
-                                                if progress_callback:
-                                                    # Calculate progress based on expected number of test cases (usually 6-12)
-                                                    progress = min(len(names) / 8.0, 0.9)  # Cap at 90% until fully done
-                                                    progress_callback(progress)
-                                                
-                                                if show_console_output:
-                                                    display_text = f"  [cyan]🚀 生成中... 已生成 {len(names)} 个测试用例[/cyan]"
-                                                    for name in names[-3:]:  # Show last 3 names
-                                                        display_text += f"\n    [dim cyan]✓ {name}[/dim cyan]"
-                                                    console.print(display_text, end="\r")
-                                            else:
-                                                if show_console_output:
-                                                    console.print(f"  [cyan]🚀 生成中... ({len(full_content)} 字符)[/cyan]", end="\r")
-                                        else:
-                                            # Update progress based on content length
-                                            if progress_callback and len(full_content) > 0:
-                                                # Estimate progress based on typical response size (3000-5000 chars)
-                                                progress = min(len(full_content) / 4000.0, 0.5)  # Cap at 50% until names appear
-                                                progress_callback(progress)
-                                            
-                                            if show_console_output:
-                                                console.print(f"  [cyan]🚀 生成中... ({len(full_content)} 字符)[/cyan]", end="\r")
-                                
-                                # Get finish reason if available
-                                if 'finish_reason' in choice and choice['finish_reason']:
-                                    finish_reason = choice['finish_reason']
-                            
-                            # Get usage data if available
-                            if 'usage' in data:
-                                usage_data = data['usage']
-                                
-                        except json.JSONDecodeError:
-                            self.logger.warning(f"Failed to parse SSE data: {data_str[:100]}")
-                            continue
-        
-        except httpx.HTTPStatusError as e:
-            self.logger.error(f"Streaming request failed with status {e.response.status_code}")
-            raise LLMError(f"Streaming API error: {e}")
+            # Delegate to provider
+            provider_response = await self.provider.generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                progress_callback=progress_callback,
+                **kwargs
+            )
+            
+            # Convert provider response to LLMClient response
+            return LLMResponse(
+                content=provider_response.content,
+                model=provider_response.model,
+                usage=provider_response.token_usage.__dict__ if provider_response.token_usage else None,
+                finish_reason=provider_response.metadata.get("finish_reason") if provider_response.metadata else None,
+                retry_count=provider_response.metadata.get("retry_count", 0) if provider_response.metadata else 0
+            )
+            
         except Exception as e:
-            self.logger.error(f"Streaming request failed: {e}")
-            raise LLMError(f"Streaming error: {e}")
-        
-        # Return complete response
-        self.logger.debug(f"Streaming complete. Content length: {len(full_content)}")
-        
-        return LLMResponse(
-            content=full_content,
-            model=self.config.model,
-            usage=usage_data,
-            finish_reason=finish_reason,
-            retry_count=retry_count
-        )
+            self.logger.error(f"Provider generation failed: {str(e)}")
+            raise LLMError(f"Provider error: {e}") from e
     
     async def close(self) -> None:
-        """Close HTTP client."""
-        await self.client.aclose()
+        """Close provider."""
+        if hasattr(self.provider, 'close'):
+            await self.provider.close()
 
 
-def create_llm_client(config: LLMConfig) -> LLMClient:
-    """Create LLM client.
-    
-    Args:
-        config: LLM configuration
-        
-    Returns:
-        LLM client instance
-    """
-    return LLMClient(config)

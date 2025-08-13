@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, Optional, Callable
 import httpx
 
@@ -30,12 +31,17 @@ class KimiProvider(LLMProvider):
             config: Provider configuration
         """
         super().__init__(config)
-        # Kimi uses OpenAI-compatible API
-        self.base_url = config.base_url or "https://api.moonshot.cn/v1"
+        # Kimi uses OpenAI-compatible API - use configured or default
+        self.base_url = config.base_url
+        if not self.base_url:
+            # Use default if not configured
+            self.base_url = "https://api.moonshot.cn/v1"
+            self.logger.info(f"Using default base URL: {self.base_url}")
         self.logger = get_logger(f"provider.{self.name}")
         
-        # Kimi supports up to 2 concurrent requests
-        self._semaphore = asyncio.Semaphore(min(config.workers, 2))
+        # Configure concurrent requests from environment
+        max_workers = int(os.getenv("CASECRAFT_KIMI_MAX_WORKERS", "2"))
+        self._semaphore = asyncio.Semaphore(min(config.workers, max_workers))
         
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
@@ -80,8 +86,8 @@ class KimiProvider(LLMProvider):
                 "model": self.config.model,  # e.g., "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"
                 "messages": messages,
                 "temperature": kwargs.get("temperature", self.config.temperature),
-                "top_p": kwargs.get("top_p", 1.0),
-                "max_tokens": kwargs.get("max_tokens", 2000),
+                "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "1.0"))),
+                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
                 "stream": self.config.stream
             }
             
@@ -364,7 +370,10 @@ class KimiProvider(LLMProvider):
             Tuple of (response data, retry count)
         """
         last_error = None
-        base_wait = 1.5  # Kimi has moderate rate limits
+        # Read retry configuration from environment
+        base_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_BASE_WAIT", "1.5"))
+        max_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_MAX_WAIT", "45"))
+        multiplier = float(os.getenv("CASECRAFT_KIMI_RETRY_MULTIPLIER", "2"))
         
         for attempt in range(self.config.max_retries + 1):
             try:
@@ -381,9 +390,9 @@ class KimiProvider(LLMProvider):
                         if retry_after:
                             wait_time = float(retry_after)
                         else:
-                            # Exponential backoff
-                            wait_time = base_wait * (2 ** attempt)
-                            wait_time = min(wait_time, 45)  # Cap at 45 seconds
+                            # Exponential backoff with configurable multiplier
+                            wait_time = base_wait * (multiplier ** attempt)
+                            wait_time = min(wait_time, max_wait)  # Cap at max_wait
                         
                         self.logger.info(f"Waiting {wait_time:.2f}s before retry...")
                         await asyncio.sleep(wait_time)
@@ -452,42 +461,11 @@ class KimiProvider(LLMProvider):
         """
         # Initialize test generator if needed
         if not self._test_generator:
-            # Create a wrapper for compatibility
             from casecraft.core.generation.llm_client import LLMClient
-            from casecraft.models.config import LLMConfig
+            from casecraft.core.generation.test_generator import TestCaseGenerator
             
-            # Convert provider config to LLM config
-            llm_config = LLMConfig(
-                model=self.config.model,
-                api_key=self.config.api_key,
-                base_url=self.base_url,
-                timeout=self.config.timeout,
-                max_retries=self.config.max_retries,
-                temperature=self.config.temperature,
-                stream=self.config.stream
-            )
-            
-            # Create a custom LLM client that uses this provider
-            class KimiLLMClient(LLMClient):
-                def __init__(self, config, provider):
-                    super().__init__(config)
-                    self.provider = provider
-                
-                async def generate(self, prompt, system_prompt=None, progress_callback=None, **kwargs):
-                    response = await self.provider.generate(
-                        prompt, system_prompt, progress_callback, **kwargs
-                    )
-                    # Convert to LLMClient response format
-                    from casecraft.core.generation.llm_client import LLMResponse as ClientResponse
-                    return ClientResponse(
-                        content=response.content,
-                        model=response.model,
-                        usage=response.token_usage.__dict__ if response.token_usage else None,
-                        finish_reason=response.metadata.get("finish_reason"),
-                        retry_count=response.metadata.get("retry_count", 0)
-                    )
-            
-            llm_client = KimiLLMClient(llm_config, self)
+            # Create LLMClient with this provider (new simplified approach)
+            llm_client = LLMClient(provider=self)
             self._test_generator = TestCaseGenerator(llm_client)
         
         # Generate test cases
@@ -527,9 +505,11 @@ class KimiProvider(LLMProvider):
         """Get maximum concurrent workers.
         
         Returns:
-            Maximum number of concurrent workers (2 for Kimi)
+            Maximum number of concurrent workers
         """
-        return min(self.config.workers, 2)  # Kimi supports up to 2 concurrent requests
+        # Read from environment variable with default fallback
+        max_workers = int(os.getenv("CASECRAFT_KIMI_MAX_WORKERS", "2"))
+        return min(self.config.workers, max_workers)
     
     def validate_config(self) -> bool:
         """Validate provider configuration.
@@ -545,10 +525,8 @@ class KimiProvider(LLMProvider):
             self.logger.error("Model name is required for Kimi provider")
             return False
         
-        # Validate model name
-        valid_models = ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"]
-        if self.config.model not in valid_models:
-            self.logger.warning(f"Unknown Kimi model: {self.config.model}. Valid models: {valid_models}")
+        # Log the model being used (no validation - let API handle it)
+        self.logger.info(f"Using Kimi model: {self.config.model}")
         
         return True
     

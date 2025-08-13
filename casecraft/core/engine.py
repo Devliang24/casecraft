@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
 from casecraft.core.parsing.api_parser import APIParser, APIParseError
-from casecraft.core.generation.llm_client import create_llm_client, LLMClient, LLMError, LLMRateLimitError
+from casecraft.core.generation.llm_client import LLMClient, LLMError, LLMRateLimitError
 from casecraft.core.management.state_manager import StateManager, StateError
 from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, GenerationResult as TestGenerationResult
 from casecraft.models.api_spec import APIEndpoint, APISpecification
@@ -101,7 +101,8 @@ class GenerationResult:
 class GeneratorEngine:
     """Main engine for coordinating test case generation."""
     
-    def __init__(self, config: CaseCraftConfig, console: Optional[Console] = None, verbose: bool = False, quiet: bool = False):
+    def __init__(self, config: CaseCraftConfig, console: Optional[Console] = None, 
+                 verbose: bool = False, quiet: bool = False, provider_instance: Optional[Any] = None):
         """Initialize generator engine.
         
         Args:
@@ -109,11 +110,13 @@ class GeneratorEngine:
             console: Rich console for output
             verbose: Enable verbose output
             quiet: Enable quiet mode (warnings/errors only)
+            provider_instance: Provider instance for LLM operations
         """
         self.config = config
         self.console = console or Console()
         self.verbose = verbose
         self.quiet = quiet
+        self.provider_instance = provider_instance
         
         # Initialize logging and error handling
         # In quiet mode, we only show critical messages
@@ -304,7 +307,14 @@ class GeneratorEngine:
             api_version: API version string
         """
         try:
-            self._llm_client = create_llm_client(self.config.llm)
+            if self.provider_instance:
+                # Use the provided provider instance
+                from casecraft.core.generation.llm_client import LLMClient
+                self._llm_client = LLMClient(provider=self.provider_instance)
+            else:
+                # Provider instance is required
+                raise GeneratorError("Provider instance is required")
+                
             self._test_generator = TestCaseGenerator(self._llm_client, api_version)
             
         except Exception as e:

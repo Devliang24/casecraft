@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, Optional, Callable
 import httpx
 
@@ -30,7 +31,12 @@ class GLMProvider(LLMProvider):
             config: Provider configuration
         """
         super().__init__(config)
-        self.base_url = config.base_url or "https://open.bigmodel.cn/api/paas/v4"
+        # BigModel API endpoint - use configured or default
+        self.base_url = config.base_url
+        if not self.base_url:
+            # Use default if not configured
+            self.base_url = "https://open.bigmodel.cn/api/paas/v4"
+            self.logger.info(f"Using default base URL: {self.base_url}")
         self._request_lock = asyncio.Lock()  # Ensure single concurrency for GLM
         self.logger = get_logger(f"provider.{self.name}")
         
@@ -294,7 +300,10 @@ class GLMProvider(LLMProvider):
             Tuple of (response data, retry count)
         """
         last_error = None
-        base_wait = 2.0
+        # Read retry configuration from environment
+        base_wait = float(os.getenv("CASECRAFT_GLM_RETRY_BASE_WAIT", "2.0"))
+        max_wait = float(os.getenv("CASECRAFT_GLM_RETRY_MAX_WAIT", "60"))
+        multiplier = float(os.getenv("CASECRAFT_GLM_RETRY_MULTIPLIER", "2"))
         current_progress = 0.1
         
         for attempt in range(self.config.max_retries + 1):
@@ -321,8 +330,8 @@ class GLMProvider(LLMProvider):
                         if retry_after:
                             wait_time = float(retry_after) + (0.5 * attempt)
                         else:
-                            wait_time = base_wait * (2 ** attempt) + (0.1 * attempt)
-                            wait_time = min(wait_time, 60)
+                            wait_time = base_wait * (multiplier ** attempt) + (0.1 * attempt)
+                            wait_time = min(wait_time, max_wait)
                         
                         self.logger.info(f"Waiting {wait_time:.2f}s before retry...")
                         await asyncio.sleep(wait_time)
@@ -383,23 +392,10 @@ class GLMProvider(LLMProvider):
         """
         # Initialize test generator if needed
         if not self._test_generator:
-            # Create a simple wrapper for the provider
             from casecraft.core.generation.llm_client import LLMClient
-            from casecraft.models.config import LLMConfig
             
-            # Convert provider config to LLM config
-            llm_config = LLMConfig(
-                model=self.config.model,
-                api_key=self.config.api_key,
-                base_url=self.config.base_url,
-                timeout=self.config.timeout,
-                max_retries=self.config.max_retries,
-                temperature=self.config.temperature,
-                stream=self.config.stream,
-                think=self.think
-            )
-            
-            llm_client = LLMClient(llm_config)
+            # Create LLMClient with this provider (new simplified approach)
+            llm_client = LLMClient(provider=self)
             self._test_generator = TestCaseGenerator(llm_client)
         
         # Use the test generator to create test cases
@@ -414,9 +410,11 @@ class GLMProvider(LLMProvider):
         """Get maximum concurrent workers.
         
         Returns:
-            Maximum number of concurrent workers (1 for GLM)
+            Maximum number of concurrent workers
         """
-        return 1  # GLM only supports single concurrency
+        # Read from environment variable with default fallback
+        max_workers = int(os.getenv("CASECRAFT_GLM_MAX_WORKERS", "1"))
+        return min(self.config.workers, max_workers)
     
     def validate_config(self) -> bool:
         """Validate provider configuration.

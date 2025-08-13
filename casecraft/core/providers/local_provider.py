@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, Optional, Callable
 import httpx
 
@@ -34,14 +35,20 @@ class LocalProvider(LLMProvider):
         # Determine local server type from config
         self.server_type = config.extra.get("server_type", "ollama") if hasattr(config, "extra") else "ollama"
         
-        # Set default base URL based on server type
-        if self.server_type == "ollama":
-            self.base_url = config.base_url or "http://localhost:11434"
-        elif self.server_type == "vllm":
-            self.base_url = config.base_url or "http://localhost:8000"
+        # Set default base URL based on server type - read ports from environment
+        if not config.base_url:
+            if self.server_type == "ollama":
+                port = os.getenv("CASECRAFT_LOCAL_OLLAMA_PORT", "11434")
+                self.base_url = f"http://localhost:{port}"
+            elif self.server_type == "vllm":
+                port = os.getenv("CASECRAFT_LOCAL_VLLM_PORT", "8000")
+                self.base_url = f"http://localhost:{port}"
+            else:
+                # Generic OpenAI-compatible local server
+                port = os.getenv("CASECRAFT_LOCAL_DEFAULT_PORT", "8000")
+                self.base_url = f"http://localhost:{port}"
         else:
-            # Generic OpenAI-compatible local server
-            self.base_url = config.base_url or "http://localhost:8000"
+            self.base_url = config.base_url
         
         self.logger = get_logger(f"provider.{self.name}")
         
@@ -119,8 +126,8 @@ class LocalProvider(LLMProvider):
             "stream": self.config.stream,
             "options": {
                 "temperature": kwargs.get("temperature", self.config.temperature),
-                "top_p": kwargs.get("top_p", 0.9),
-                "num_predict": kwargs.get("max_tokens", 2000)
+                "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
+                "num_predict": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000")))
             }
         }
         
@@ -281,8 +288,8 @@ class LocalProvider(LLMProvider):
             "model": self.config.model,
             "messages": messages,
             "temperature": kwargs.get("temperature", self.config.temperature),
-            "top_p": kwargs.get("top_p", 1.0),
-            "max_tokens": kwargs.get("max_tokens", 2000),
+            "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "1.0"))),
+            "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
             "stream": self.config.stream
         }
         
