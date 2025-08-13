@@ -443,7 +443,7 @@ class KimiProvider(LLMProvider):
         # Track total time to prevent excessive retries
         import time
         start_time = time.time()
-        max_total_time = 45  # Maximum 45 seconds for all retries
+        max_total_time = 75  # Maximum 75 seconds for all retries
         
         for attempt in range(self.config.max_retries + 1):
             # Check if we've exceeded total time limit
@@ -454,11 +454,11 @@ class KimiProvider(LLMProvider):
                 self.logger.info(f"[Kimi] Sending request to {endpoint} (attempt {attempt + 1}/{self.config.max_retries + 1})")
                 self.logger.debug(f"[Kimi] Request payload size: {len(json.dumps(payload))} bytes")
                 
-                # Add timeout to individual request (25s to leave room for retries)
+                # Add timeout to individual request (35s to leave room for retries)
                 response = await self.client.post(
                     endpoint, 
                     json=payload, 
-                    timeout=httpx.Timeout(25.0, connect=5.0)
+                    timeout=httpx.Timeout(35.0, connect=8.0)
                 )
                 
                 self.logger.info(f"[Kimi] Received response with status {response.status_code}")
@@ -605,10 +605,10 @@ class KimiProvider(LLMProvider):
             # Should not reach here
             raise ProviderGenerationError(f"Failed to generate test cases after {max_retries + 1} attempts")
         
-        # Apply timeout protection (50 seconds total for all retries)
+        # Apply timeout protection (80 seconds total for all retries)
         try:
-            self.logger.info(f"[Kimi] Applying 50s timeout for generation")
-            return await asyncio.wait_for(_generate_with_retries(), timeout=50.0)
+            self.logger.info(f"[Kimi] Applying 80s timeout for generation")
+            return await asyncio.wait_for(_generate_with_retries(), timeout=80.0)
         except asyncio.TimeoutError:
             endpoint_id = endpoint.get_endpoint_id()
             self.logger.error(f"[Kimi] Generation timeout after 60s for {endpoint_id}")
