@@ -10,7 +10,7 @@ from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn
 
 from casecraft.core.parsing.api_parser import APIParser, APIParseError
 from casecraft.core.generation.llm_client import LLMClient, LLMError, LLMRateLimitError
-from casecraft.core.management.state_manager import StateManager, StateError
+from casecraft.core.management.enhanced_state_manager import EnhancedStateManager, StateError
 from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, GenerationResult as TestGenerationResult
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
@@ -131,7 +131,7 @@ class GeneratorEngine:
         
         # Initialize components
         self.api_parser = APIParser(timeout=30)
-        self.state_manager = StateManager()
+        self.state_manager = EnhancedStateManager()
         self._llm_client: Optional[LLMClient] = None
         self._test_generator: Optional[TestCaseGenerator] = None
     

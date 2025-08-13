@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field
+from casecraft.models.provider_state import ProviderStatistics
 
 
 class EndpointState(BaseModel):
@@ -45,6 +46,7 @@ class CaseCraftState(BaseModel):
     config: Optional[ProjectConfig] = None
     endpoints: Dict[str, EndpointState] = Field(default_factory=dict)
     statistics: ProcessingStatistics = Field(default_factory=ProcessingStatistics)
+    provider_stats: Optional[ProviderStatistics] = Field(default=None, description="Provider performance statistics")
     
     class Config:
         """Pydantic configuration."""

@@ -43,17 +43,13 @@ class EnhancedStateManager(StateManager):
         """
         state = await super().load_state()
         
-        # Try to load provider statistics
-        stats_file = self.state_file_path.parent / ".casecraft_provider_stats.json"
-        if stats_file.exists():
-            try:
-                async with aiofiles.open(stats_file, 'r') as f:
-                    data = await f.read()
-                    stats_data = json.loads(data)
-                    self.provider_stats = ProviderStatistics(**stats_data)
-            except Exception as e:
-                # If stats file is corrupted, start fresh
-                self.provider_stats = ProviderStatistics()
+        # Use provider_stats from unified state if available
+        if state.provider_stats:
+            self.provider_stats = state.provider_stats
+        else:
+            # Initialize new provider stats if not present
+            self.provider_stats = ProviderStatistics()
+            state.provider_stats = self.provider_stats
         
         # Initialize cost rates for known providers
         for provider, rates in DEFAULT_COST_RATES.items():
@@ -71,18 +67,9 @@ class EnhancedStateManager(StateManager):
         Args:
             state: State to save
         """
+        # Update provider_stats in state before saving
+        state.provider_stats = self.provider_stats
         await super().save_state(state)
-        
-        # Save provider statistics
-        stats_file = self.state_file_path.parent / ".casecraft_provider_stats.json"
-        try:
-            # Use model_dump_json() for Pydantic v2 compatibility
-            stats_json = self.provider_stats.model_dump_json(indent=2)
-            async with aiofiles.open(stats_file, 'w') as f:
-                await f.write(stats_json)
-        except Exception as e:
-            # Log error but don't fail the main operation
-            print(f"Warning: Failed to save provider statistics: {e}")
     
     def start_provider_request(self, provider: str, endpoint_id: str) -> None:
         """Mark the start of a provider request for timing.

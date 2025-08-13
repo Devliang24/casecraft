@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.state import CaseCraftState, EndpointState, ProjectConfig, ProcessingStatistics
+from casecraft.models.provider_state import ProviderStatistics
 
 
 class StateError(Exception):
@@ -45,6 +46,8 @@ class StateManager:
         
         if not self.state_file_path.exists():
             self._state = CaseCraftState()
+            # Check for legacy provider stats file and merge if exists
+            await self._merge_legacy_provider_stats()
             return self._state
         
         try:
@@ -53,10 +56,15 @@ class StateManager:
             
             if not content.strip():
                 self._state = CaseCraftState()
+                await self._merge_legacy_provider_stats()
                 return self._state
             
             state_data = json.loads(content)
             self._state = CaseCraftState(**state_data)
+            
+            # Check for legacy provider stats file and merge if exists
+            await self._merge_legacy_provider_stats()
+            
             return self._state
             
         except json.JSONDecodeError as e:
@@ -460,3 +468,37 @@ class StateManager:
         """Reset state to empty."""
         self._state = CaseCraftState()
         await self.save_state()
+    
+    async def _merge_legacy_provider_stats(self) -> None:
+        """Merge legacy provider statistics file if exists."""
+        if self._state is None:
+            return
+            
+        # Check if we already have provider_stats in state
+        if self._state.provider_stats is not None:
+            return
+            
+        # Check for legacy stats file
+        legacy_stats_file = self.state_file_path.parent / ".casecraft_provider_stats.json"
+        if not legacy_stats_file.exists():
+            return
+            
+        try:
+            # Read legacy stats file
+            async with aiofiles.open(legacy_stats_file, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                
+            if content.strip():
+                stats_data = json.loads(content)
+                self._state.provider_stats = ProviderStatistics(**stats_data)
+                
+                # Save the merged state
+                await self.save_state(self._state)
+                
+                # Remove legacy file after successful merge
+                legacy_stats_file.unlink()
+                print(f"✓ Migrated provider statistics from {legacy_stats_file.name} to unified state file")
+                
+        except Exception as e:
+            # Log warning but don't fail
+            print(f"Warning: Failed to migrate legacy provider statistics: {e}")
