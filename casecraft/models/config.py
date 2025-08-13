@@ -16,7 +16,7 @@ class LLMConfig(BaseModel):
     max_retries: int = Field(default=5, description="Maximum retry attempts")
     temperature: float = Field(default=0.7, description="Temperature for generation")
     think: bool = Field(default=False, description="Enable thinking process output (useful for debugging)")
-    stream: bool = Field(default=False, description="Enable streaming response (improves user experience)")
+    stream: bool = Field(default=True, description="Enable streaming response (default enabled for better user experience)")
 
 
 class OutputConfig(BaseModel):

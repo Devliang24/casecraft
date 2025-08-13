@@ -48,7 +48,7 @@ class ProviderConfig:
         timeout: int = 60,
         max_retries: int = 3,
         temperature: float = 0.7,
-        stream: bool = False,
+        stream: bool = True,
         workers: int = 1,
         use_structured_output: bool = True,
         **kwargs
