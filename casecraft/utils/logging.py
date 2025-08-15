@@ -116,7 +116,7 @@ def configure_logging(
         
         # Set formatter for file handler
         file_formatter = logging.Formatter(
-            '[%(asctime)s] [%(levelname)-8s] [%(name)s] %(message)s',
+            '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         file_handler.setFormatter(file_formatter)
@@ -239,7 +239,7 @@ class CaseCraftLogger:
         
         # Set formatter for file handler
         file_formatter = logging.Formatter(
-            '[%(asctime)s] [%(levelname)-8s] [%(name)s] %(message)s',
+            '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         cls._file_handler.setFormatter(file_formatter)
