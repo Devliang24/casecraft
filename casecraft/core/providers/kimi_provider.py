@@ -10,7 +10,8 @@ from casecraft.core.providers.base import LLMProvider, LLMResponse, ProviderConf
 from casecraft.core.providers.exceptions import (
     ProviderGenerationError,
     ProviderRateLimitError,
-    ProviderConfigError
+    ProviderConfigError,
+    ProviderEmptyResponseError
 )
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCaseCollection
@@ -111,9 +112,33 @@ class KimiProvider(LLMProvider):
                 else:
                     return await self._generate_non_stream(payload, progress_callback)
                     
+            except ProviderEmptyResponseError as e:
+                # Try fallback to non-structured output on empty response
+                if self.config.use_structured_output and "response_format" in payload:
+                    self.logger.warning("[Kimi] Retrying without structured output due to empty response")
+                    fallback_payload = payload.copy()
+                    fallback_payload.pop("response_format", None)
+                    
+                    try:
+                        if self.config.stream and progress_callback:
+                            return await self._generate_stream(fallback_payload, progress_callback)
+                        else:
+                            return await self._generate_non_stream(fallback_payload, progress_callback)
+                    except Exception as fallback_error:
+                        self.logger.error(f"[Kimi] Fallback also failed: {fallback_error}")
+                        raise e  # Raise original error
+                else:
+                    raise e
+                    
             except Exception as e:
-                self.logger.error(f"Kimi generation failed: {str(e)}")
-                raise ProviderGenerationError(f"Kimi API error: {e}") from e
+                # Convert to friendly error
+                friendly_error = self.create_friendly_error(e, {
+                    "model": self.config.model,
+                    "stream": self.config.stream,
+                    "messages": payload.get("messages", [])
+                })
+                self.logger.error(f"Kimi generation failed: {friendly_error.get_friendly_message()}")
+                raise friendly_error from e
     
     def _unwrap_array_response(self, content: str) -> str:
         """Unwrap array response from Kimi's structured output format.
@@ -144,8 +169,28 @@ class KimiProvider(LLMProvider):
                 self.logger.warning(f"[Kimi] Failed to save debug response: {e}")
         
         try:
+            # Check if content is empty or whitespace-only
+            if not content or not content.strip():
+                self.logger.warning("[Kimi] Content is empty, returning empty string")
+                return ""
+            
+            # Check if content is too short to be meaningful (likely partial response)
+            if len(content.strip()) < 50:
+                self.logger.warning(f"[Kimi] Content too short ({len(content)} chars), likely partial response")
+                return ""
+            
             parsed = json.loads(content)
             self.logger.debug(f"[Kimi] Parsed response type: {type(parsed)}")
+            
+            # Special handling for single-key objects that might be incomplete
+            if isinstance(parsed, dict) and len(parsed) == 1:
+                single_key = list(parsed.keys())[0]
+                single_value = parsed[single_key]
+                
+                # If it's just a schema or incomplete response, mark as invalid
+                if single_key in ['resp_schema', 'schema', 'properties', 'type'] and not isinstance(single_value, list):
+                    self.logger.warning(f"[Kimi] Detected incomplete response with single key '{single_key}'")
+                    return ""
             
             # If it's already an array, return as is
             if isinstance(parsed, list):
@@ -289,6 +334,7 @@ class KimiProvider(LLMProvider):
         
         # Get content and unwrap if structured output is enabled
         content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason")
         if self.config.use_structured_output:
             content = self._unwrap_array_response(content)
             self.logger.debug("Applied array unwrapping for structured output")
@@ -303,10 +349,17 @@ class KimiProvider(LLMProvider):
                 model=self.config.model
             )
         
-        # Update to 100%
+        # Calculate final provider progress based on actual response
         if progress_callback:
             try:
-                progress_callback(1.0)
+                final_progress = self.calculate_provider_progress(
+                    base_progress=0.9,  # Base from processing phase
+                    content_length=len(content) if content else 0,
+                    has_finish_reason=bool(finish_reason),
+                    is_streaming=False,
+                    retry_count=retry_count
+                )
+                progress_callback(final_progress)
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
@@ -316,7 +369,7 @@ class KimiProvider(LLMProvider):
             model=self.config.model,
             token_usage=token_usage,
             metadata={
-                "finish_reason": choice.get("finish_reason"),
+                "finish_reason": finish_reason,
                 "retry_count": retry_count,
                 "id": response.get("id"),
                 "object": response.get("object")
@@ -357,6 +410,10 @@ class KimiProvider(LLMProvider):
                         if data_str == "[DONE]":
                             break
                         
+                        # Skip empty or whitespace-only data
+                        if not data_str or not data_str.strip():
+                            continue
+                        
                         try:
                             data = json.loads(data_str)
                             
@@ -368,10 +425,10 @@ class KimiProvider(LLMProvider):
                                 if "content" in delta:
                                     content_chunks.append(delta["content"])
                                     
-                                    # Update progress
+                                    # Update progress (cap at 90% during streaming)
                                     if progress_callback:
                                         progress = 0.2 + min(len(content_chunks) / 100, 0.7)
-                                        progress_callback(progress)
+                                        progress_callback(min(progress, 0.9))
                                 
                                 if choice.get("finish_reason"):
                                     finish_reason = choice["finish_reason"]
@@ -383,19 +440,41 @@ class KimiProvider(LLMProvider):
                             # Note: Kimi doesn't provide token usage in streaming mode
                             # We'll estimate it based on content length
                             
-                        except json.JSONDecodeError:
-                            self.logger.warning(f"Failed to parse SSE data: {data_str}")
+                        except json.JSONDecodeError as e:
+                            self.logger.warning(f"Failed to parse SSE data: {e}")
+                            self.logger.debug(f"Invalid SSE data: '{data_str}'")
                             continue
-                
-                # Update to 100%
-                if progress_callback:
-                    progress_callback(1.0)
                 
                 # Combine chunks and unwrap if structured output is enabled
                 content = "".join(content_chunks)
+                self.logger.debug(f"[Kimi] Combined content length: {len(content)}")
+                
                 if self.config.use_structured_output:
-                    content = self._unwrap_array_response(content)
-                    self.logger.debug("Applied array unwrapping for structured output (streaming)")
+                    if content:  # Only unwrap if there's content
+                        content = self._unwrap_array_response(content)
+                        self.logger.debug("Applied array unwrapping for structured output (streaming)")
+                    else:
+                        self.logger.warning("[Kimi] No content to unwrap - empty streaming response")
+                
+                # Handle case where no content was received
+                if not content:
+                    debug_file = self.save_debug_response("", "empty_response", {
+                        "model": self.config.model,
+                        "stream": True,
+                        "messages": payload.get("messages", [])
+                    })
+                    raise ProviderEmptyResponseError("Kimi", attempt=2)
+                
+                # Calculate final provider progress based on actual response
+                if progress_callback:
+                    final_progress = self.calculate_provider_progress(
+                        base_progress=0.9,  # Base from streaming
+                        content_length=len(content),
+                        has_finish_reason=bool(finish_reason),
+                        is_streaming=True,
+                        retry_count=0  # Streaming doesn't use retry mechanism
+                    )
+                    progress_callback(final_progress)
                 
                 # Estimate token usage for streaming (rough approximation)
                 estimated_tokens = len(content) // 4  # Rough estimate: 1 token ≈ 4 characters
@@ -419,8 +498,14 @@ class KimiProvider(LLMProvider):
                 )
                 
         except Exception as e:
-            self.logger.error(f"Streaming generation failed: {e}")
-            raise ProviderGenerationError(f"Streaming failed: {e}") from e
+            # Convert to friendly error
+            friendly_error = self.create_friendly_error(e, {
+                "model": self.config.model,
+                "stream": True,
+                "messages": payload.get("messages", [])
+            })
+            self.logger.error(f"Streaming generation failed: {friendly_error.get_friendly_message()}")
+            raise friendly_error from e
     
     async def _make_request_with_retry(
         self,
@@ -440,14 +525,17 @@ class KimiProvider(LLMProvider):
         """
         last_error = None
         # Read retry configuration from environment
-        base_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_BASE_WAIT", "1.5"))
-        max_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_MAX_WAIT", "10"))  # Reduced from 45
-        multiplier = float(os.getenv("CASECRAFT_KIMI_RETRY_MULTIPLIER", "2"))
+        base_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_BASE_WAIT", "3.0"))  # Increased from 1.5
+        max_wait = float(os.getenv("CASECRAFT_KIMI_RETRY_MAX_WAIT", "15"))  # Increased from 10
+        multiplier = float(os.getenv("CASECRAFT_KIMI_RETRY_MULTIPLIER", "2.5"))  # Increased from 2
         
         # Track total time to prevent excessive retries
         import time
         start_time = time.time()
         max_total_time = 75  # Maximum 75 seconds for all retries
+        
+        # Track progress for rollback on retries
+        pre_retry_progress = None
         
         for attempt in range(self.config.max_retries + 1):
             # Check if we've exceeded total time limit
@@ -472,6 +560,16 @@ class KimiProvider(LLMProvider):
                     self.logger.warning(f"Rate limit hit on attempt {attempt + 1}")
                     
                     if attempt < self.config.max_retries:
+                        # Store current progress before retry for rollback
+                        if progress_callback and pre_retry_progress is None:
+                            pre_retry_progress = 0.8  # Assume we were at ~80% before rate limit
+                        
+                        # Apply progress rollback to show retry is happening
+                        if progress_callback and pre_retry_progress is not None:
+                            rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
+                            progress_callback(rollback_progress)
+                            self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
+                        
                         # Check for Retry-After header (OpenAI standard)
                         retry_after = response.headers.get('retry-after')
                         if retry_after:
@@ -510,6 +608,16 @@ class KimiProvider(LLMProvider):
                     pass
                 
                 if status_code >= 500 and attempt < self.config.max_retries:
+                    # Store current progress before retry for rollback
+                    if progress_callback and pre_retry_progress is None:
+                        pre_retry_progress = 0.8  # Assume we were at ~80% before server error
+                    
+                    # Apply progress rollback to show retry is happening
+                    if progress_callback and pre_retry_progress is not None:
+                        rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
+                        progress_callback(rollback_progress)
+                        self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
+                    
                     # Server error - retry
                     wait_time = base_wait * (attempt + 1)
                     self.logger.info(f"Server error, waiting {wait_time}s before retry...")
@@ -523,6 +631,16 @@ class KimiProvider(LLMProvider):
                 self.logger.error(f"Network error on attempt {attempt + 1}: {e}")
                 
                 if attempt < self.config.max_retries:
+                    # Store current progress before retry for rollback
+                    if progress_callback and pre_retry_progress is None:
+                        pre_retry_progress = 0.7  # Assume we were at ~70% before network error
+                    
+                    # Apply progress rollback to show retry is happening
+                    if progress_callback and pre_retry_progress is not None:
+                        rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
+                        progress_callback(rollback_progress)
+                        self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
+                    
                     wait_time = base_wait * (attempt + 1)
                     self.logger.info(f"Network error, waiting {wait_time}s before retry...")
                     await asyncio.sleep(wait_time)

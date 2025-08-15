@@ -164,6 +164,7 @@ class LocalProvider(LLMProvider):
         
         # Parse response
         content = data.get("response", "")
+        is_done = data.get("done", False)  # Ollama completion indicator
         
         # Ollama provides basic token info
         token_usage = None
@@ -175,8 +176,16 @@ class LocalProvider(LLMProvider):
                 model=self.config.model
             )
         
+        # Calculate final provider progress based on actual response
         if progress_callback:
-            progress_callback(1.0)
+            final_progress = self.calculate_provider_progress(
+                base_progress=0.9,  # Base from processing phase
+                content_length=len(content) if content else 0,
+                has_finish_reason=is_done,  # Use done flag as completion indicator
+                is_streaming=False,
+                retry_count=0  # Ollama typically doesn't retry
+            )
+            progress_callback(final_progress)
         
         return LLMResponse(
             content=content,
@@ -243,11 +252,20 @@ class LocalProvider(LLMProvider):
                         self.logger.warning(f"Failed to parse stream data: {line}")
                         continue
                 
+                # Calculate final provider progress based on actual response
+                final_content = "".join(content_chunks)
                 if progress_callback:
-                    progress_callback(1.0)
+                    final_progress = self.calculate_provider_progress(
+                        base_progress=0.9,  # Base from streaming
+                        content_length=len(final_content),
+                        has_finish_reason=True,  # Stream completed
+                        is_streaming=True,
+                        retry_count=0  # Streaming doesn't use retry mechanism
+                    )
+                    progress_callback(final_progress)
                 
                 return LLMResponse(
-                    content="".join(content_chunks),
+                    content=final_content,
                     provider=self.name,
                     model=self.config.model,
                     token_usage=token_usage,
@@ -333,6 +351,8 @@ class LocalProvider(LLMProvider):
         
         # Parse OpenAI-format response
         choice = data["choices"][0]
+        content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason")
         usage = data.get("usage", {})
         
         # Create token usage
@@ -345,11 +365,19 @@ class LocalProvider(LLMProvider):
                 model=self.config.model
             )
         
+        # Calculate final provider progress based on actual response
         if progress_callback:
-            progress_callback(1.0)
+            final_progress = self.calculate_provider_progress(
+                base_progress=0.9,  # Base from processing phase
+                content_length=len(content) if content else 0,
+                has_finish_reason=bool(finish_reason),
+                is_streaming=False,
+                retry_count=0  # OpenAI-compatible typically doesn't retry
+            )
+            progress_callback(final_progress)
         
         return LLMResponse(
-            content=choice["message"]["content"],
+            content=content,
             provider=self.name,
             model=self.config.model,
             token_usage=token_usage,
@@ -407,11 +435,19 @@ class LocalProvider(LLMProvider):
                             self.logger.warning(f"Failed to parse SSE data: {data_str}")
                             continue
                 
-                if progress_callback:
-                    progress_callback(1.0)
-                
-                # Estimate tokens for local models
+                # Estimate tokens for local models first
                 content = "".join(content_chunks)
+                
+                # Calculate final provider progress based on actual response
+                if progress_callback:
+                    final_progress = self.calculate_provider_progress(
+                        base_progress=0.9,  # Base from streaming
+                        content_length=len(content),
+                        has_finish_reason=bool(finish_reason),
+                        is_streaming=True,
+                        retry_count=0  # Streaming doesn't use retry mechanism
+                    )
+                    progress_callback(final_progress)
                 estimated_tokens = len(content) // 4
                 token_usage = TokenUsage(
                     prompt_tokens=len(str(payload["messages"])) // 4,

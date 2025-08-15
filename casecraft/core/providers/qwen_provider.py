@@ -110,8 +110,14 @@ class QwenProvider(LLMProvider):
                     return await self._generate_non_stream(payload, progress_callback)
                     
             except Exception as e:
-                self.logger.error(f"Qwen generation failed: {str(e)}")
-                raise ProviderGenerationError(f"Qwen API error: {e}") from e
+                # Convert to friendly error
+                friendly_error = self.create_friendly_error(e, {
+                    "model": self.config.model,
+                    "stream": self.config.stream,
+                    "messages": payload.get("messages", [])
+                })
+                self.logger.error(f"Qwen generation failed: {friendly_error.get_friendly_message()}")
+                raise friendly_error from e
     
     async def _generate_non_stream(
         self,
@@ -174,10 +180,17 @@ class QwenProvider(LLMProvider):
                 model=self.config.model
             )
         
-        # Update to 100%
+        # Calculate final provider progress based on actual response
         if progress_callback:
             try:
-                progress_callback(1.0)
+                final_progress = self.calculate_provider_progress(
+                    base_progress=0.9,  # Base from processing phase
+                    content_length=len(content) if content else 0,
+                    has_finish_reason=bool(finish_reason),
+                    is_streaming=False,
+                    retry_count=retry_count
+                )
+                progress_callback(final_progress)
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
@@ -288,16 +301,24 @@ class QwenProvider(LLMProvider):
                             self.logger.error(f"Error processing streaming data: {parse_err}, Data type: {type(data)}")
                             continue
                 
-                # Update to 100%
+                # Calculate final provider progress based on actual response
+                final_content = "".join(content_chunks)
                 if progress_callback:
                     try:
-                        progress_callback(1.0)
+                        final_progress = self.calculate_provider_progress(
+                            base_progress=0.9,  # Base from streaming
+                            content_length=len(final_content),
+                            has_finish_reason=bool(finish_reason),
+                            is_streaming=True,
+                            retry_count=0  # Streaming doesn't use retry mechanism
+                        )
+                        progress_callback(final_progress)
                     except Exception as cb_err:
                         self.logger.warning(f"Final progress callback error: {cb_err}")
                 
                 self.logger.info(f"Qwen streaming returning token_usage: {token_usage}")
                 return LLMResponse(
-                    content="".join(content_chunks),
+                    content=final_content,
                     provider=self.name,
                     model=self.config.model,
                     token_usage=token_usage,
@@ -309,9 +330,16 @@ class QwenProvider(LLMProvider):
                 
         except Exception as e:
             self.logger.error(f"Streaming generation failed: {e}, Error type: {type(e).__name__}")
+            # Convert to friendly error
+            friendly_error = self.create_friendly_error(e, {
+                "model": self.config.model,
+                "stream": True,
+                "messages": payload.get("messages", [])
+            })
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
-            raise ProviderGenerationError(f"Streaming failed: {e}") from e
+            self.logger.error(f"Streaming generation failed: {friendly_error.get_friendly_message()}")
+            raise friendly_error from e
     
     async def _make_request_with_retry(
         self,
@@ -373,7 +401,8 @@ class QwenProvider(LLMProvider):
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    raise ProviderGenerationError(f"HTTP error {status_code}: {e}")
+                    friendly_error = self.create_friendly_error(e)
+                    raise friendly_error
                     
             except httpx.RequestError as e:
                 last_error = e
@@ -386,9 +415,9 @@ class QwenProvider(LLMProvider):
                     continue
         
         # All retries exhausted
-        raise ProviderGenerationError(
-            f"Request failed after {self.config.max_retries + 1} attempts: {last_error}"
-        )
+        # Convert to friendly error
+        friendly_error = self.create_friendly_error(last_error or Exception("Request failed after retries"))
+        raise friendly_error
     
     async def generate_test_cases(
         self,
