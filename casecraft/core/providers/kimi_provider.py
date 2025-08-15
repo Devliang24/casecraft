@@ -289,12 +289,12 @@ class KimiProvider(LLMProvider):
         # Update progress
         if progress_callback:
             try:
-                progress_callback(0.1)  # 10% - Starting
+                progress_callback(0.1, None)  # 10% - Starting
                 self.logger.debug("Progress update: 10% - Starting request")
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
-        # Simulate progress while waiting
+        # Enhanced progress simulation while waiting
         request_task = asyncio.create_task(
             self._make_request_with_retry("/chat/completions", payload, progress_callback)
         )
@@ -302,18 +302,42 @@ class KimiProvider(LLMProvider):
         if progress_callback:
             try:
                 start_time = asyncio.get_event_loop().time()
+                last_update_time = start_time
+                update_interval = 0.3  # More frequent updates for better responsiveness
                 
                 while not request_task.done():
-                    await asyncio.sleep(0.5)
-                    elapsed = asyncio.get_event_loop().time() - start_time
+                    await asyncio.sleep(update_interval)
+                    current_time = asyncio.get_event_loop().time()
+                    elapsed = current_time - start_time
                     
-                    # Logarithmic progress curve
-                    progress_ratio = min(elapsed / 30, 1.0)
-                    simulated_progress = 0.1 + (0.7 * (1 - (1 / (1 + progress_ratio * 9))))
-                    simulated_progress = min(simulated_progress, 0.8)
-                    
-                    progress_callback(simulated_progress)
-                    self.logger.debug(f"Progress update: {simulated_progress:.1%} - Waiting")
+                    # Only update if enough time has passed (avoid spamming)
+                    if current_time - last_update_time >= update_interval:
+                        # Enhanced logarithmic progress curve with phases
+                        progress_ratio = min(elapsed / 25, 1.0)  # Slightly faster progression
+                        
+                        # Multi-phase progress simulation
+                        if elapsed < 5:
+                            # Initial connection phase (0.1 - 0.3)
+                            phase_progress = 0.1 + (0.2 * (elapsed / 5))
+                        elif elapsed < 15:
+                            # Request processing phase (0.3 - 0.7)
+                            phase_ratio = (elapsed - 5) / 10
+                            phase_progress = 0.3 + (0.4 * (1 - (1 / (1 + phase_ratio * 4))))
+                        else:
+                            # Final processing phase (0.7 - 0.85)
+                            phase_ratio = (elapsed - 15) / 10
+                            phase_progress = 0.7 + (0.15 * min(phase_ratio, 1.0))
+                        
+                        simulated_progress = min(phase_progress, 0.85)
+                        
+                        # Non-blocking progress update
+                        try:
+                            progress_callback(simulated_progress, None)
+                            self.logger.debug(f"Progress update: {simulated_progress:.1%} - Processing")
+                            last_update_time = current_time
+                        except Exception as cb_error:
+                            self.logger.debug(f"Progress callback error: {cb_error}")
+                            
             except Exception as e:
                 self.logger.warning(f"Progress simulation error: {e}")
         
@@ -323,7 +347,7 @@ class KimiProvider(LLMProvider):
         # Update progress
         if progress_callback:
             try:
-                progress_callback(0.9)  # 90% - Processing
+                progress_callback(0.9, None)  # 90% - Processing
                 self.logger.debug("Progress update: 90% - Processing response")
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
@@ -359,7 +383,7 @@ class KimiProvider(LLMProvider):
                     is_streaming=False,
                     retry_count=retry_count
                 )
-                progress_callback(final_progress)
+                progress_callback(final_progress, None)
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
@@ -425,10 +449,22 @@ class KimiProvider(LLMProvider):
                                 if "content" in delta:
                                     content_chunks.append(delta["content"])
                                     
-                                    # Update progress (cap at 90% during streaming)
-                                    if progress_callback:
-                                        progress = 0.2 + min(len(content_chunks) / 100, 0.7)
-                                        progress_callback(min(progress, 0.9))
+                                    # Enhanced streaming progress with adaptive updates
+                                    if progress_callback and len(content_chunks) % 5 == 0:  # Update every 5 chunks
+                                        # Calculate progress based on content length and chunk count
+                                        total_content_length = sum(len(chunk) for chunk in content_chunks)
+                                        
+                                        # Multi-factor progress calculation
+                                        chunk_progress = min(len(content_chunks) / 150, 0.6)  # Based on chunk count
+                                        content_progress = min(total_content_length / 3000, 0.3)  # Based on content length
+                                        
+                                        combined_progress = 0.2 + chunk_progress + content_progress
+                                        final_progress = min(combined_progress, 0.9)
+                                        
+                                        try:
+                                            progress_callback(final_progress, None)
+                                        except Exception as cb_error:
+                                            self.logger.debug(f"Streaming progress callback error: {cb_error}")
                                 
                                 if choice.get("finish_reason"):
                                     finish_reason = choice["finish_reason"]
@@ -474,7 +510,7 @@ class KimiProvider(LLMProvider):
                         is_streaming=True,
                         retry_count=0  # Streaming doesn't use retry mechanism
                     )
-                    progress_callback(final_progress)
+                    progress_callback(final_progress, None)
                 
                 # Estimate token usage for streaming (rough approximation)
                 estimated_tokens = len(content) // 4  # Rough estimate: 1 token ≈ 4 characters
@@ -543,7 +579,10 @@ class KimiProvider(LLMProvider):
                 self.logger.error(f"[Kimi] Exceeded maximum retry time of {max_total_time}s")
                 raise ProviderGenerationError(f"Request timeout after {max_total_time}s")
             try:
-                self.logger.info(f"[Kimi] Sending request to {endpoint} (attempt {attempt + 1}/{self.config.max_retries + 1})")
+                if attempt > 0:
+                    self.logger.info(f"[Kimi] 🔄 Retry {attempt + 1}/{self.config.max_retries + 1} - Sending request to {endpoint}")
+                else:
+                    self.logger.info(f"[Kimi] Sending request to {endpoint} (attempt {attempt + 1}/{self.config.max_retries + 1})")
                 self.logger.debug(f"[Kimi] Request payload size: {len(json.dumps(payload))} bytes")
                 
                 # Add timeout to individual request (35s to leave room for retries)
@@ -567,7 +606,8 @@ class KimiProvider(LLMProvider):
                         # Apply progress rollback to show retry is happening
                         if progress_callback and pre_retry_progress is not None:
                             rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
-                            progress_callback(rollback_progress)
+                            http_retry_info = {'current': attempt + 1, 'total': self.config.max_retries + 1}
+                            progress_callback(rollback_progress, http_retry_info)
                             self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
                         
                         # Check for Retry-After header (OpenAI standard)
@@ -579,7 +619,7 @@ class KimiProvider(LLMProvider):
                             wait_time = base_wait * (multiplier ** attempt)
                             wait_time = min(wait_time, max_wait)  # Cap at max_wait
                         
-                        self.logger.info(f"Waiting {wait_time:.2f}s before retry...")
+                        self.logger.info(f"[Retry {attempt + 1}/{self.config.max_retries + 1}] Rate limit hit, waiting {wait_time:.2f}s...")
                         await asyncio.sleep(wait_time)
                         continue
                     else:
@@ -591,6 +631,11 @@ class KimiProvider(LLMProvider):
                 self.logger.info(f"[Kimi] Parsing JSON response...")
                 json_response = response.json()
                 self.logger.info(f"[Kimi] Successfully parsed response")
+                
+                # Log retry success if retries were used
+                if attempt > 0:
+                    self.logger.info(f"[Kimi] ✅ Request succeeded after {attempt + 1} attempts ({attempt} retries)")
+                
                 return json_response, attempt
                 
             except httpx.HTTPStatusError as e:
@@ -615,12 +660,13 @@ class KimiProvider(LLMProvider):
                     # Apply progress rollback to show retry is happening
                     if progress_callback and pre_retry_progress is not None:
                         rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
-                        progress_callback(rollback_progress)
+                        http_retry_info = {'current': attempt + 1, 'total': self.config.max_retries + 1}
+                        progress_callback(rollback_progress, http_retry_info)
                         self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
                     
                     # Server error - retry
                     wait_time = base_wait * (attempt + 1)
-                    self.logger.info(f"Server error, waiting {wait_time}s before retry...")
+                    self.logger.info(f"[Retry {attempt + 1}/{self.config.max_retries + 1}] Server error {status_code}, waiting {wait_time:.2f}s...")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
@@ -638,15 +684,27 @@ class KimiProvider(LLMProvider):
                     # Apply progress rollback to show retry is happening
                     if progress_callback and pre_retry_progress is not None:
                         rollback_progress = self.calculate_retry_rollback_progress(pre_retry_progress, attempt + 1)
-                        progress_callback(rollback_progress)
+                        http_retry_info = {'current': attempt + 1, 'total': self.config.max_retries + 1}
+                        progress_callback(rollback_progress, http_retry_info)
                         self.logger.debug(f"[Kimi] Applied retry rollback: {pre_retry_progress:.1%} → {rollback_progress:.1%}")
                     
                     wait_time = base_wait * (attempt + 1)
-                    self.logger.info(f"Network error, waiting {wait_time}s before retry...")
+                    self.logger.info(f"[Retry {attempt + 1}/{self.config.max_retries + 1}] Network error ({type(e).__name__}), waiting {wait_time:.2f}s...")
                     await asyncio.sleep(wait_time)
                     continue
         
-        # All retries exhausted
+        # All retries exhausted - log comprehensive failure summary
+        total_time = time.time() - start_time
+        self.logger.error(
+            f"[Kimi] ❌ All retries exhausted after {self.config.max_retries + 1} attempts "
+            f"in {total_time:.1f}s. Last error: {last_error}"
+        )
+        self.logger.info(
+            f"[Kimi] Retry summary: {self.config.max_retries + 1} attempts, "
+            f"{total_time:.1f}s total time, "
+            f"avg {total_time/(self.config.max_retries + 1):.1f}s per attempt"
+        )
+        
         raise ProviderGenerationError(
             f"Request failed after {self.config.max_retries + 1} attempts: {last_error}"
         )

@@ -95,3 +95,17 @@ test_*.json
 *.cache
 merge_record.txt
 merge_report.txt
+
+# Debug and response files
+kimi_response_*.json
+debug_responses/
+my.logclear
+my.log
+
+# Log files (keep only a few recent ones, clean periodically)
+# Only track recent logs, ignore older ones
+logs/
+!logs/.gitkeep
+
+# Test-specific log files
+retry_progress_*.log

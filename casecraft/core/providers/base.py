@@ -100,7 +100,7 @@ class LLMProvider(ABC):
         self.config = config
         self.logger = logging.getLogger(f"provider.{self.name}")
     
-    def create_friendly_error(self, error: Exception, request_data: Optional[Dict[str, Any]] = None) -> ProviderError:
+    def create_friendly_error(self, error: Exception, request_data: Optional[Dict[str, Any]] = None, retry_stats: Optional[Dict[str, Any]] = None) -> ProviderError:
         """Convert any error to a user-friendly ProviderError.
         
         Args:
@@ -136,6 +136,7 @@ class LLMProvider(ABC):
             provider_error = ProviderError(
                 message=str(error),
                 provider_name=self.name,
+                retry_stats=retry_stats,
                 suggestions=[
                     "Check network connection",
                     f"Verify {self.name} API configuration",
@@ -261,6 +262,90 @@ class LLMProvider(ABC):
         rolled_back = max(current_progress - rollback_amount, 0.10)
         
         return rolled_back
+    
+    def log_retry_attempt(self, attempt: int, max_retries: int, endpoint: str, reason: str = "error") -> None:
+        """Log a retry attempt with unified format.
+        
+        Args:
+            attempt: Current attempt number (0-based)
+            max_retries: Maximum number of retries allowed
+            endpoint: API endpoint being retried
+            reason: Reason for retry
+        """
+        if attempt > 0:
+            self.logger.info(f"[{self.name.upper()}] 🔄 Retry {attempt + 1}/{max_retries + 1} - {reason} - {endpoint}")
+        else:
+            self.logger.info(f"[{self.name.upper()}] Initial request to {endpoint}")
+    
+    def log_retry_wait(self, attempt: int, max_retries: int, wait_time: float, reason: str) -> None:
+        """Log retry wait with unified format.
+        
+        Args:
+            attempt: Current attempt number (0-based)  
+            max_retries: Maximum number of retries allowed
+            wait_time: Wait time in seconds
+            reason: Reason for retry
+        """
+        self.logger.info(f"[Retry {attempt + 1}/{max_retries + 1}] {reason}, waiting {wait_time:.2f}s...")
+    
+    def log_retry_success(self, attempt: int, total_time: float) -> None:
+        """Log successful request after retries.
+        
+        Args:
+            attempt: Final attempt number (0-based)
+            total_time: Total time taken including retries
+        """
+        if attempt > 0:
+            self.logger.info(f"[{self.name.upper()}] ✅ Request succeeded after {attempt + 1} attempts ({attempt} retries, {total_time:.1f}s total)")
+    
+    def log_retry_failure(self, max_retries: int, total_time: float, last_error: Exception) -> None:
+        """Log final failure after all retries exhausted.
+        
+        Args:
+            max_retries: Maximum number of retries that were attempted
+            total_time: Total time spent on all attempts
+            last_error: The final error that caused failure
+        """
+        attempts = max_retries + 1
+        self.logger.error(
+            f"[{self.name.upper()}] ❌ All retries exhausted after {attempts} attempts "
+            f"in {total_time:.1f}s. Last error: {last_error}"
+        )
+        self.logger.info(
+            f"[{self.name.upper()}] Retry summary: {attempts} attempts, "
+            f"{total_time:.1f}s total time, "
+            f"avg {total_time/attempts:.1f}s per attempt"
+        )
+    
+    def safe_progress_callback(self, progress_callback: Optional[Callable], progress: float, retry_info: Optional[Dict[str, Any]] = None) -> None:
+        """Safely call progress callback with error handling and rate limiting.
+        
+        Args:
+            progress_callback: Progress callback function
+            progress: Progress value (0.0-1.0)
+            retry_info: Optional retry information
+        """
+        if not progress_callback:
+            return
+        
+        try:
+            # Rate limiting: Store last update time and avoid too frequent updates
+            current_time = time.time()
+            last_update_key = f"_last_progress_update_{id(progress_callback)}"
+            
+            if hasattr(self, last_update_key):
+                last_update = getattr(self, last_update_key)
+                if current_time - last_update < 0.1:  # Minimum 100ms between updates
+                    return
+            
+            setattr(self, last_update_key, current_time)
+            
+            # Execute callback with timeout protection
+            progress_callback(progress, retry_info)
+            
+        except Exception as e:
+            # Log but don't fail on progress callback errors
+            self.logger.debug(f"Progress callback error: {e}")
     
     @property
     @abstractmethod

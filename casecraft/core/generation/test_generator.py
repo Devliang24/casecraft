@@ -214,10 +214,43 @@ class TestCaseGenerator:
                 if is_streaming and attempt == 0:  # Only show streaming on first attempt
                     self.logger.file_only(f"Using streaming mode for {endpoint.get_endpoint_id()}")
                 
+                # Create enhanced retry-aware progress callback
+                retry_aware_callback = None
+                if progress_callback:
+                    def retry_aware_callback(stream_progress: float, http_retry_info: Optional[Dict[str, Any]] = None):
+                        # Enhanced retry info with more detail
+                        retry_info = None
+                        if attempt > 0 or http_retry_info:
+                            retry_info = {
+                                'generation_retry': {
+                                    'current': attempt + 1 if attempt > 0 else 0,
+                                    'total': max_attempts,
+                                    'attempt_phase': 'generation',
+                                    'last_error': str(last_error)[:50] + '...' if last_error and attempt > 0 else None
+                                }
+                            }
+                            if http_retry_info:
+                                retry_info['http_retry'] = http_retry_info
+                        
+                        # Use non-blocking progress update
+                        try:
+                            progress_callback(stream_progress, retry_info)
+                        except Exception as e:
+                            # Don't let progress callback errors break generation
+                            self.logger.warning(f"Progress callback error: {e}")
+                
+                # Phase progress updates for better user feedback
+                if progress_callback:
+                    try:
+                        phase_progress = 0.1 + (attempt * 0.1)  # Each retry starts from higher base
+                        retry_aware_callback(phase_progress, None)  # Signal generation start
+                    except Exception:
+                        pass  # Ignore progress callback errors
+                
                 response = await self.llm_client.generate(
                     prompt=prompt,
                     system_prompt=system_prompt,
-                    progress_callback=progress_callback if attempt == 0 else None  # Only show progress on first attempt
+                    progress_callback=retry_aware_callback
                 )
                 
                 # Track token usage across retries
@@ -294,14 +327,35 @@ class TestCaseGenerator:
                     await asyncio.sleep(2)  # Brief delay before retry
                     continue
                 else:
-                    # Final failure - raise the error
+                    # Final failure - create error with retry statistics
                     error_msg = f"Failed to generate test cases for {endpoint.get_endpoint_id()} after {attempt + 1} attempts: {e}"
                     self.logger.error(error_msg)
-                    raise TestGeneratorError(error_msg)
+                    
+                    # Import here to avoid circular imports
+                    from casecraft.core.providers.exceptions import ProviderError
+                    
+                    # Create error with detailed retry statistics
+                    retry_error = ProviderError.create_with_retry_stats(
+                        message=error_msg,
+                        provider_name="TestGenerator",
+                        generation_retries=attempt + 1,
+                        generation_max_retries=max_attempts,
+                        retry_reasons=[str(e) for e in [last_error] if e]
+                    )
+                    raise TestGeneratorError(retry_error.get_friendly_message())
             
             except Exception as e:
-                # Unexpected error - don't retry
-                raise TestGeneratorError(f"Unexpected error generating test cases for {endpoint.get_endpoint_id()}: {e}")
+                # Unexpected error - don't retry, but still include basic retry info
+                from casecraft.core.providers.exceptions import ProviderError
+                
+                retry_error = ProviderError.create_with_retry_stats(
+                    message=f"Unexpected error generating test cases for {endpoint.get_endpoint_id()}: {e}",
+                    provider_name="TestGenerator",
+                    generation_retries=attempt + 1,
+                    generation_max_retries=max_attempts,
+                    retry_reasons=["Unexpected error"]
+                )
+                raise TestGeneratorError(retry_error.get_friendly_message())
     
     def _should_retry(self, error: Exception) -> bool:
         """Determine if error is worth retrying.

@@ -107,8 +107,14 @@ class GLMProvider(LLMProvider):
                     return await self._generate_non_stream(payload, progress_callback)
                     
             except Exception as e:
-                self.logger.error(f"GLM generation failed: {str(e)}")
-                raise ProviderGenerationError(f"GLM API error: {e}") from e
+                # Convert to friendly error
+                friendly_error = self.create_friendly_error(e, {
+                    "model": self.config.model,
+                    "stream": self.config.stream,
+                    "messages": payload.get("messages", [])
+                })
+                self.logger.error(f"GLM generation failed: {friendly_error.get_friendly_message()}")
+                raise friendly_error from e
     
     async def _generate_non_stream(
         self,
@@ -161,16 +167,24 @@ class GLMProvider(LLMProvider):
         # Get the response
         response, retry_count = await request_task
         
-        # Update progress to 90% after receiving response
+        # Parse response first to get content and finish reason
+        choice = response["choices"][0]
+        content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason")
+        
+        # Calculate final provider progress based on actual response
         if progress_callback:
             try:
-                progress_callback(0.9)  # 90% - Processing response
-                self.logger.debug("Progress update: 90% - Processing response")
+                final_progress = self.calculate_provider_progress(
+                    base_progress=0.9,  # Base from waiting phase
+                    content_length=len(content) if content else 0,
+                    has_finish_reason=bool(finish_reason),
+                    is_streaming=False
+                )
+                progress_callback(final_progress)
+                self.logger.debug(f"Progress update: {final_progress:.1%} - Response processed")
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
-        
-        # Parse response
-        choice = response["choices"][0]
         
         # Create token usage
         token_usage = None
@@ -184,12 +198,12 @@ class GLMProvider(LLMProvider):
             )
         
         return LLMResponse(
-            content=choice["message"]["content"],
+            content=content,
             provider=self.name,
             model=self.config.model,
             token_usage=token_usage,
             metadata={
-                "finish_reason": choice.get("finish_reason"),
+                "finish_reason": finish_reason,
                 "retry_count": retry_count
             }
         )
@@ -274,9 +288,16 @@ class GLMProvider(LLMProvider):
                             self.logger.warning(f"Failed to parse SSE data: {data_str}")
                             continue
                 
-                # Update to 100% when done
+                # Calculate final provider progress (never 100%)
                 if progress_callback:
-                    progress_callback(1.0)
+                    final_content = "".join(content_chunks)
+                    final_progress = self.calculate_provider_progress(
+                        base_progress=0.9,  # Base from streaming
+                        content_length=len(final_content),
+                        has_finish_reason=bool(finish_reason),
+                        is_streaming=True
+                    )
+                    progress_callback(final_progress)
                 
                 return LLMResponse(
                     content="".join(content_chunks),
@@ -287,8 +308,14 @@ class GLMProvider(LLMProvider):
                 )
                 
         except Exception as e:
-            self.logger.error(f"Streaming generation failed: {e}")
-            raise ProviderGenerationError(f"Streaming failed: {e}") from e
+            # Convert to friendly error
+            friendly_error = self.create_friendly_error(e, {
+                "model": self.config.model,
+                "stream": True,
+                "messages": payload.get("messages", [])
+            })
+            self.logger.error(f"Streaming generation failed: {friendly_error.get_friendly_message()}")
+            raise friendly_error from e
     
     async def _make_request_with_retry(
         self,
@@ -364,7 +391,8 @@ class GLMProvider(LLMProvider):
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    raise ProviderGenerationError(f"HTTP error {status_code}: {e}")
+                    friendly_error = self.create_friendly_error(e)
+                    raise friendly_error
                     
             except httpx.RequestError as e:
                 last_error = e
@@ -377,9 +405,9 @@ class GLMProvider(LLMProvider):
                     continue
         
         # All retries exhausted
-        raise ProviderGenerationError(
-            f"Request failed after {self.config.max_retries + 1} attempts: {last_error}"
-        )
+        # Convert to friendly error
+        friendly_error = self.create_friendly_error(last_error or Exception("Request failed after retries"))
+        raise friendly_error
     
     async def generate_test_cases(
         self,

@@ -278,6 +278,60 @@ def _show_dry_run_results(result: GenerationResult) -> None:
     console.print("[dim]──────────────────────────────────[/dim]")
 
 
+def _show_retry_breakdown(result: GenerationResult) -> None:
+    """Show detailed retry breakdown by layer and endpoint.
+    
+    Args:
+        result: Generation result with retry statistics
+    """
+    retry_summary = result.get_retry_summary()
+    
+    if retry_summary.get('total_retries', 0) == 0:
+        return
+    
+    console.print(f"\n[bold blue]━━━━━━ 🔄 Retry Breakdown ━━━━━━[/bold blue]")
+    
+    # Create breakdown table
+    breakdown_table = Table(show_header=False, box=None, padding=(0, 1))
+    breakdown_table.add_column(width=2, justify="left")   # Emoji column
+    breakdown_table.add_column(width=20, justify="left")  # Label column
+    breakdown_table.add_column(justify="left")            # Value column
+    
+    # Show overall statistics
+    total_retries = retry_summary['total_retries']
+    total_endpoints = retry_summary['total_endpoints']
+    endpoints_with_retries = retry_summary['endpoints_with_retries']
+    
+    breakdown_table.add_row("📊", "Overall Summary:", f"{total_retries} retries across {endpoints_with_retries}/{total_endpoints} endpoints")
+    
+    # Show time breakdown if available
+    if retry_summary.get('total_retry_time', 0) > 0:
+        retry_time = retry_summary['total_retry_time']
+        wait_time = retry_summary.get('total_wait_time', 0)
+        breakdown_table.add_row("⏱️", "Total Retry Time:", f"{retry_time:.1f}s")
+        if wait_time > 0:
+            breakdown_table.add_row("⏳", "Total Wait Time:", f"{wait_time:.1f}s")
+    
+    # Show most retried endpoints with details
+    most_retried = retry_summary.get('most_retried_endpoints', [])
+    if most_retried:
+        breakdown_table.add_row("", "", "")  # Separator
+        breakdown_table.add_row("🔥", "Most Retried Endpoints:", "")
+        for i, endpoint_info in enumerate(most_retried[:3]):
+            prefix = f"#{i+1}:" if i < 3 else ""
+            endpoint_id = endpoint_info['endpoint_id']
+            retries = endpoint_info['retries']
+            retry_time = endpoint_info.get('retry_time', 0)
+            
+            if retry_time > 0:
+                breakdown_table.add_row("", f"  {prefix}", f"{endpoint_id} - {retries} retries ({retry_time:.1f}s)")
+            else:
+                breakdown_table.add_row("", f"  {prefix}", f"{endpoint_id} - {retries} retries")
+    
+    console.print(breakdown_table)
+    console.print("[dim]──────────────────────────────────[/dim]")
+
+
 def _show_token_statistics(result: GenerationResult) -> None:
     """Show token usage statistics.
     
@@ -316,16 +370,36 @@ def _show_token_statistics(result: GenerationResult) -> None:
             endpoints_per_min = (result.generated_count / result.duration) * 60
             token_table.add_row("🚀", "Speed:", f"{endpoints_per_min:.1f} endpoints/min")
     
-    # Add retry statistics if available
-    if summary.get('total_retries', 0) > 0:
+    # Add comprehensive retry statistics if available
+    retry_summary = result.get_retry_summary()
+    if retry_summary.get('total_retries', 0) > 0:
         token_table.add_row("", "", "")  # Empty separator row
-        token_table.add_row("🔄", "Total Retries:", f"[yellow]{summary['total_retries']}[/yellow]")
-        token_table.add_row("📍", "Endpoints w/ Retries:", f"{summary['endpoints_with_retries']}")
-        token_table.add_row("📈", "Max Retries (Single):", f"{summary['max_retries_for_single_endpoint']}")
+        token_table.add_row("🔄", "Total Retries:", f"[yellow]{retry_summary['total_retries']}[/yellow]")
+        token_table.add_row("📍", "Endpoints w/ Retries:", f"{retry_summary['endpoints_with_retries']}/{retry_summary['total_endpoints']}")
         
-        if summary['endpoints_with_retries'] > 0:
-            avg_retries = summary['average_retries_per_endpoint']
-            token_table.add_row("⚖️", "Avg Retries/Endpoint:", f"{avg_retries:.1f}")
+        # Show retry rate as percentage
+        retry_rate = retry_summary['retry_rate'] * 100
+        token_table.add_row("📊", "Retry Rate:", f"{retry_rate:.1f}%")
+        
+        # Show time breakdown if available
+        if retry_summary.get('total_retry_time', 0) > 0:
+            retry_time = retry_summary['total_retry_time']
+            wait_time = retry_summary.get('total_wait_time', 0)
+            token_table.add_row("⏱️", "Retry Time:", f"{retry_time:.1f}s")
+            if wait_time > 0:
+                token_table.add_row("⏳", "Wait Time:", f"{wait_time:.1f}s")
+        
+        # Show average retries per endpoint that had retries
+        avg_retries = retry_summary['average_retries_per_endpoint']
+        token_table.add_row("⚖️", "Avg Retries/Endpoint:", f"{avg_retries:.1f}")
+        
+        # Show most retried endpoints (top 3)
+        most_retried = retry_summary.get('most_retried_endpoints', [])
+        if most_retried:
+            token_table.add_row("🔥", "Most Retried:", f"{most_retried[0]['endpoint_id']} ({most_retried[0]['retries']} retries)")
+            if len(most_retried) > 1:
+                for endpoint_info in most_retried[1:3]:  # Show up to 2 more
+                    token_table.add_row("", "", f"{endpoint_info['endpoint_id']} ({endpoint_info['retries']} retries)")
     
     console.print(token_table)
     console.print("[dim]──────────────────────────────────[/dim]")
@@ -357,16 +431,25 @@ def _show_generation_results(result: GenerationResult) -> None:
     table.add_row("⏱", "Duration:", f"{result.duration:.1f}s")
     
     # Add retry summary if there were retries
-    if result.has_token_usage():
-        summary = result.get_token_summary()
-        if summary.get('total_retries', 0) > 0:
-            table.add_row("🔄", "Total Retries:", f"[yellow]{summary['total_retries']}[/yellow]")
+    retry_summary = result.get_retry_summary()
+    if retry_summary.get('total_retries', 0) > 0:
+        table.add_row("🔄", "Total Retries:", f"[yellow]{retry_summary['total_retries']}[/yellow]")
+        
+        # Show retry efficiency (percentage of total time spent on retries)
+        if retry_summary.get('total_retry_time', 0) > 0 and result.duration > 0:
+            retry_time_percentage = (retry_summary['total_retry_time'] / result.duration) * 100
+            table.add_row("⏱️", "Retry Time:", f"{retry_time_percentage:.1f}% of total")
     
     console.print(table)
     
     # Show token usage and cost statistics if available
     if result.has_token_usage():
         _show_token_statistics(result)
+    
+    # Show detailed retry breakdown if there were significant retries
+    retry_summary = result.get_retry_summary()
+    if retry_summary.get('total_retries', 0) >= 5:  # Show breakdown for 5+ retries
+        _show_retry_breakdown(result)
     
     # Show generated files
     if result.generated_files:

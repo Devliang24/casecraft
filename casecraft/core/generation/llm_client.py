@@ -126,8 +126,8 @@ class LLMClient:
                 content=provider_response.content,
                 model=provider_response.model,
                 usage=usage_dict,
-                finish_reason=provider_response.metadata.get("finish_reason") if provider_response.metadata else None,
-                retry_count=provider_response.metadata.get("retry_count", 0) if provider_response.metadata else 0
+                finish_reason=getattr(provider_response, 'metadata', {}).get("finish_reason") if hasattr(provider_response, 'metadata') and provider_response.metadata else None,
+                retry_count=getattr(provider_response, 'metadata', {}).get("retry_count", 0) if hasattr(provider_response, 'metadata') and provider_response.metadata else 0
             )
             
         except Exception as e:

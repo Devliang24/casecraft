@@ -10,12 +10,13 @@ from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn
 
 from casecraft.core.parsing.api_parser import APIParser, APIParseError
 from casecraft.core.generation.llm_client import LLMClient, LLMError, LLMRateLimitError
+from casecraft.core.providers.exceptions import ProviderError
 from casecraft.core.management.enhanced_state_manager import EnhancedStateManager, StateError
 from casecraft.core.generation.test_generator import TestCaseGenerator, TestGeneratorError, GenerationResult as TestGenerationResult
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.test_case import TestCaseCollection
-from casecraft.models.usage import TokenUsage, TokenStatistics, CostCalculator
+from casecraft.models.usage import TokenUsage, TokenStatistics, CostCalculator, RetryTracker
 from casecraft.utils.logging import CaseCraftLogger, LoggingContext
 from casecraft.utils.exceptions import ErrorHandler, ErrorContext, convert_exception_to_casecraft_error
 from casecraft.utils.concurrency import ConcurrencyController
@@ -43,6 +44,9 @@ class GenerationResult:
         # Token usage statistics
         self.token_statistics = TokenStatistics()
         self.model_name: Optional[str] = None
+        
+        # Retry statistics
+        self.retry_trackers: Dict[str, RetryTracker] = {}  # endpoint_id -> RetryTracker
     
     def add_token_usage(self, usage: TokenUsage, success: bool = True) -> None:
         """Add token usage from a single LLM API call.
@@ -80,6 +84,65 @@ class GenerationResult:
         base_summary.update(retry_summary)
         
         return base_summary
+    
+    def get_or_create_retry_tracker(self, endpoint_id: str) -> RetryTracker:
+        """Get or create retry tracker for an endpoint.
+        
+        Args:
+            endpoint_id: API endpoint identifier
+            
+        Returns:
+            RetryTracker instance for the endpoint
+        """
+        if endpoint_id not in self.retry_trackers:
+            self.retry_trackers[endpoint_id] = RetryTracker(endpoint_id=endpoint_id)
+        return self.retry_trackers[endpoint_id]
+    
+    def get_retry_summary(self) -> Dict[str, Any]:
+        """Get comprehensive retry statistics summary.
+        
+        Returns:
+            Dictionary with retry statistics across all endpoints
+        """
+        if not self.retry_trackers:
+            return {"total_retries": 0, "total_retry_time": 0, "endpoints_with_retries": 0}
+        
+        total_retries = 0
+        total_retry_time = 0.0
+        total_wait_time = 0.0
+        endpoints_with_retries = 0
+        
+        endpoint_summaries = []
+        
+        for endpoint_id, tracker in self.retry_trackers.items():
+            tracker.complete_operation()  # Ensure operation is marked complete
+            stats = tracker.get_comprehensive_stats()
+            
+            total_retries += stats["total_retries"]
+            total_retry_time += stats["total_retry_time"]
+            total_wait_time += stats["total_wait_time"]
+            
+            if stats["total_retries"] > 0:
+                endpoints_with_retries += 1
+                endpoint_summaries.append({
+                    "endpoint_id": endpoint_id,
+                    "retries": stats["total_retries"],
+                    "retry_time": stats["total_retry_time"]
+                })
+        
+        # Sort endpoints by retry count (most retried first)
+        endpoint_summaries.sort(key=lambda x: x["retries"], reverse=True)
+        
+        return {
+            "total_retries": total_retries,
+            "total_retry_time": total_retry_time,
+            "total_wait_time": total_wait_time,
+            "endpoints_with_retries": endpoints_with_retries,
+            "total_endpoints": len(self.retry_trackers),
+            "retry_rate": endpoints_with_retries / max(len(self.retry_trackers), 1),
+            "average_retries_per_endpoint": total_retries / max(len(self.retry_trackers), 1),
+            "most_retried_endpoints": endpoint_summaries[:3]  # Top 3
+        }
     
     def has_token_usage(self) -> bool:
         """Check if any token usage data is available.
@@ -210,7 +273,7 @@ class GeneratorEngine:
                 
                 if not to_generate:
                     if not self.quiet:
-                        self.console.print("[green]✨ 所有端点已是最新状态，无需重新生成！[/green]")
+                        self.console.print("[green]✨ All endpoints are up to date, no regeneration needed![/green]")
                     # All endpoints up to date is considered success
                     logging_context.set_success(True)
                     return result
@@ -327,10 +390,10 @@ class GeneratorEngine:
                 self.console.print(f"  • {endpoint.method:6} {endpoint.path}")
             
             if len(to_generate) > 5:
-                self.console.print(f"  ... 及其他 {len(to_generate) - 5} 个端点")
+                self.console.print(f"  ... and {len(to_generate) - 5} more endpoints")
         
         if to_skip:
-            self.console.print(f"\n[dim]⏭️ 跳过 {len(to_skip)} 个未变更的端点[/dim]")
+            self.console.print(f"\n[dim]⏭️ Skipping {len(to_skip)} unchanged endpoints[/dim]")
         
         self.console.print()
     
@@ -387,7 +450,7 @@ class GeneratorEngine:
             transient=False  # Keep progress bar visible after completion
         ) as progress:
             
-            task = progress.add_task("🚀 生成测试用例中...", total=100)  # Use percentage
+            task = progress.add_task("🚀 Generating test cases...", total=100)  # Use percentage
             
             # Create tasks for concurrent processing with rate limiting
             tasks = [
@@ -426,15 +489,49 @@ class GeneratorEngine:
         endpoint_id = endpoint.get_endpoint_id()
         
         try:
-            # Create a progress callback for streaming updates
-            def update_progress(stream_progress: float):
+            # Create enhanced progress callback for streaming updates
+            def update_progress(stream_progress: float, retry_info: Optional[Dict[str, Any]] = None):
                 # Calculate total progress: endpoint progress + stream progress within endpoint
                 total_progress = (endpoint_index + stream_progress) / total_endpoints
-                progress.update(
-                    task_id, 
-                    completed=int(total_progress * 100),
-                    description=f"生成测试用例: {endpoint_id}"
-                )
+                
+                # Build enhanced progress description with retry information
+                base_description = f"Generating test cases: {endpoint_id}"
+                
+                if retry_info:
+                    generation_retry = retry_info.get('generation_retry', {})
+                    http_retry = retry_info.get('http_retry', {})
+                    
+                    retry_parts = []
+                    
+                    # Enhanced generation retry display
+                    if generation_retry.get('current', 0) > 0:
+                        attempt_phase = generation_retry.get('attempt_phase', 'retry')
+                        retry_parts.append(f"{attempt_phase} {generation_retry['current']}/{generation_retry['total']}")
+                        
+                        # Show last error hint if available
+                        last_error = generation_retry.get('last_error')
+                        if last_error and len(last_error) > 0:
+                            error_hint = last_error.split(':')[0] if ':' in last_error else last_error[:20]
+                            retry_parts.append(f"({error_hint})")
+                    
+                    # Enhanced HTTP retry display with timing
+                    if http_retry.get('current', 0) > 0:
+                        retry_parts.append(f"HTTP {http_retry['current']}/{http_retry['total']}")
+                    
+                    if retry_parts:
+                        retry_text = f" [{', '.join(retry_parts)}]"
+                        base_description += retry_text
+                
+                # Non-blocking progress update with error handling
+                try:
+                    progress.update(
+                        task_id, 
+                        completed=int(total_progress * 100),
+                        description=base_description
+                    )
+                except Exception as e:
+                    # Log but don't fail on progress update errors
+                    self.logger.file_only(f"Progress update error: {e}", level="DEBUG")
             
             # Generate test cases with progress callback
             generation_result = await self._test_generator.generate_test_cases(
@@ -486,7 +583,7 @@ class GeneratorEngine:
             progress.update(
                 task_id, 
                 completed=int(((endpoint_index + 1) / total_endpoints) * 100),
-                description=f"已完成: {endpoint_id}"
+                description=f"Completed: {endpoint_id}"
             )
             
             # Brief success log with friendly formatting
@@ -498,38 +595,49 @@ class GeneratorEngine:
             
             # Update progress on failure - based on actual success count
             if result.generated_count == 0:
-                # 完全失败时停止进度条，防止重绘
+                # Stop progress bar completely on total failure to prevent redraw
                 progress.stop()
             else:
-                # 如果有部分成功，更新进度
+                # If partial success, update progress
                 current_progress = int((result.generated_count / total_endpoints) * 100)
                 progress.update(
                     task_id,
                     completed=current_progress
-                    # Don't update description on failure, keep original "🚀 生成测试用例中..."
+                    # Don't update description on failure, keep original "🚀 Generating test cases..."
                 )
             
             # Then show error messages
             self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
             
-            # Show detailed error in verbose mode, truncated otherwise
-            if self.verbose:
-                # Show full error details in verbose mode
-                full_error = str(e)
-                self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
+            # Check if this is a friendly ProviderError
+            if isinstance(e, ProviderError):
+                # Show friendly error message
+                friendly_msg = e.get_friendly_message()
+                for line in friendly_msg.split('\n'):
+                    if line.strip():
+                        self.console.print(f"    [dim red]{line}[/dim red]")
                 
                 # Log detailed error information for debugging
-                self.logger.file_only(f"LLM generation failed for {endpoint_id}: {full_error}", level="ERROR")
-                
-                # If this is an LLMError, try to extract more details
-                if isinstance(e, (LLMError, LLMRateLimitError)):
-                    self.logger.file_only(f"LLM error type: {type(e).__name__}", level="DEBUG")
-                    if hasattr(e, '__cause__') and e.__cause__:
-                        self.logger.file_only(f"Underlying cause: {e.__cause__}", level="DEBUG")
+                self.logger.file_only(f"Provider error for {endpoint_id}: {friendly_msg}", level="ERROR")
             else:
-                # Show error in normal mode with proper wrapping
-                error_msg = str(e)
-                self.console.print(f"    [dim red]Reason: {error_msg}[/dim red]", soft_wrap=True)
+                # Show detailed error in verbose mode, truncated otherwise
+                if self.verbose:
+                    # Show full error details in verbose mode
+                    full_error = str(e)
+                    self.console.print(f"    [dim red]Detailed error: {full_error}[/dim red]")
+                    
+                    # Log detailed error information for debugging
+                    self.logger.file_only(f"LLM generation failed for {endpoint_id}: {full_error}", level="ERROR")
+                    
+                    # If this is an LLMError, try to extract more details
+                    if isinstance(e, (LLMError, LLMRateLimitError)):
+                        self.logger.file_only(f"LLM error type: {type(e).__name__}", level="DEBUG")
+                        if hasattr(e, '__cause__') and e.__cause__:
+                            self.logger.file_only(f"Underlying cause: {e.__cause__}", level="DEBUG")
+                else:
+                    # Show error in normal mode with proper wrapping
+                    error_msg = str(e)
+                    self.console.print(f"    [dim red]Reason: {error_msg}[/dim red]", soft_wrap=True)
             
         except Exception as e:
             result.failed_count += 1
@@ -537,25 +645,25 @@ class GeneratorEngine:
             
             # Update progress on failure - based on actual success count
             if result.generated_count == 0:
-                # 完全失败时停止进度条，防止重绘
+                # Stop progress bar completely on total failure to prevent redraw
                 progress.stop()
             else:
-                # 如果有部分成功，更新进度
+                # If partial success, update progress
                 current_progress = int((result.generated_count / total_endpoints) * 100)
                 progress.update(
                     task_id,
                     completed=current_progress
-                    # Don't update description on failure, keep original "🚀 生成测试用例中..."
+                    # Don't update description on failure, keep original "🚀 Generating test cases..."
                 )
             
             # Then show error messages
-            self.console.print(f"  [red]✗[/red] 意外错误 - {endpoint_id}")
+            self.console.print(f"  [red]✗[/red] Unexpected error - {endpoint_id}")
             
             # Show detailed error in verbose mode, truncated otherwise
             if self.verbose:
                 # Show full error details in verbose mode
                 full_error = str(e)
-                self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
+                self.console.print(f"    [dim red]Detailed error: {full_error}[/dim red]")
                 
                 # Log detailed error information for debugging
                 self.logger.file_only(f"Unexpected error for {endpoint_id}: {full_error}", level="ERROR")
@@ -565,7 +673,7 @@ class GeneratorEngine:
             else:
                 # Show error in normal mode with proper wrapping
                 error_msg = str(e)
-                self.console.print(f"    [dim red]错误: {error_msg}[/dim red]", soft_wrap=True)
+                self.console.print(f"    [dim red]Error: {error_msg}[/dim red]", soft_wrap=True)
     
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:
         """Save test case collection to file.
@@ -618,13 +726,30 @@ class GeneratorEngine:
         if not path_slug:
             path_slug = "root"
         
+        # Prepare template variables
+        template_vars = {
+            'method': collection.method.lower(),
+            'path_slug': path_slug,
+            'endpoint_id': collection.endpoint_id.replace(":", "_").replace("/", "_")
+        }
+        
+        # Add timestamp if enabled
+        if self.config.output.include_timestamp:
+            from datetime import datetime
+            timestamp = datetime.now().strftime(self.config.output.timestamp_format)
+            template_vars['timestamp'] = timestamp
+        
         # Apply template
         template = self.config.output.filename_template
-        filename = template.format(
-            method=collection.method.lower(),
-            path_slug=path_slug,
-            endpoint_id=collection.endpoint_id.replace(":", "_").replace("/", "_")
-        )
+        
+        # Handle timestamp in template
+        if self.config.output.include_timestamp:
+            # If template doesn't include timestamp, add it before extension
+            if '{timestamp}' not in template:
+                base_template, ext = template.rsplit('.', 1) if '.' in template else (template, '')
+                template = f"{base_template}_{{timestamp}}" + (f".{ext}" if ext else "")
+        
+        filename = template.format(**template_vars)
         
         # Ensure .json extension
         if not filename.endswith('.json'):

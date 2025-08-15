@@ -1,6 +1,7 @@
 """Output management for test case files."""
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -166,13 +167,29 @@ class OutputManager:
         # Create path slug
         path_slug = create_path_slug(collection.path)
         
+        # Prepare template variables
+        template_vars = {
+            'method': collection.method.lower(),
+            'path_slug': path_slug,
+            'endpoint_id': collection.endpoint_id.replace(":", "_").replace("/", "_")
+        }
+        
+        # Add timestamp if enabled
+        if self.config.include_timestamp:
+            timestamp = datetime.now().strftime(self.config.timestamp_format)
+            template_vars['timestamp'] = timestamp
+        
         # Apply filename template
         template = self.config.filename_template
-        filename = template.format(
-            method=collection.method.lower(),
-            path_slug=path_slug,
-            endpoint_id=collection.endpoint_id.replace(":", "_").replace("/", "_")
-        )
+        
+        # Handle timestamp in template
+        if self.config.include_timestamp:
+            # If template doesn't include timestamp, add it before extension
+            if '{timestamp}' not in template:
+                base_template, ext = template.rsplit('.', 1) if '.' in template else (template, '')
+                template = f"{base_template}_{{timestamp}}" + (f".{ext}" if ext else "")
+        
+        filename = template.format(**template_vars)
         
         return sanitize_filename(filename)
     

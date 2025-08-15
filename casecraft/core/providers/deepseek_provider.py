@@ -112,8 +112,14 @@ class DeepSeekProvider(LLMProvider):
                     return await self._generate_non_stream(payload, progress_callback)
                     
             except Exception as e:
-                self.logger.error(f"DeepSeek generation failed: {str(e)}")
-                raise ProviderGenerationError(f"DeepSeek API error: {e}") from e
+                # Convert to friendly error
+                friendly_error = self.create_friendly_error(e, {
+                    "model": self.config.model,
+                    "stream": self.config.stream,
+                    "messages": payload.get("messages", [])
+                })
+                self.logger.error(f"DeepSeek generation failed: {friendly_error.get_friendly_message()}")
+                raise friendly_error from e
     
     async def _generate_non_stream(
         self, 
@@ -147,7 +153,9 @@ class DeepSeekProvider(LLMProvider):
                         error_msg = f"DeepSeek API error: {error_data.get('error', 'Unknown error')}"
             except:
                 pass
-            raise ProviderGenerationError(error_msg)
+            # Convert to friendly error  
+            friendly_error = self.create_friendly_error(Exception(error_msg))
+            raise friendly_error
         
         if progress_callback:
             progress_callback(0.9)  # Processing response
@@ -155,24 +163,34 @@ class DeepSeekProvider(LLMProvider):
         data = response.json()
         
         # Extract response
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason")
         
         # Extract token usage
         usage = data.get("usage", {})
         token_usage = TokenUsage(
-            input_tokens=usage.get("prompt_tokens", 0),
-            output_tokens=usage.get("completion_tokens", 0),
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
             total_tokens=usage.get("total_tokens", 0)
         )
         
+        # Calculate final provider progress based on actual response
         if progress_callback:
-            progress_callback(1.0)  # Complete
+            final_progress = self.calculate_provider_progress(
+                base_progress=0.9,  # Base from processing phase
+                content_length=len(content) if content else 0,
+                has_finish_reason=bool(finish_reason),
+                is_streaming=False
+            )
+            progress_callback(final_progress)
         
         return LLMResponse(
             content=content,
+            provider=self.name,
             model=self.config.model,
-            usage=token_usage,
-            raw_response=data
+            token_usage=token_usage,
+            metadata={"raw_response": data}
         )
     
     async def _generate_stream(
@@ -209,7 +227,9 @@ class DeepSeekProvider(LLMProvider):
                             error_msg = f"DeepSeek API error: {error_data.get('error', 'Unknown error')}"
                 except:
                     pass
-                raise ProviderGenerationError(error_msg)
+                # Convert to friendly error
+                friendly_error = self.create_friendly_error(Exception(error_msg))
+                raise friendly_error
             
             async for line in response.aiter_lines():
                 if not line:
@@ -225,23 +245,24 @@ class DeepSeekProvider(LLMProvider):
                         chunk = json.loads(line_data)
                         
                         # Extract content delta
-                        if "choices" in chunk and chunk["choices"]:
-                            delta = chunk["choices"][0].get("delta", {})
+                        if "choices" in chunk and chunk["choices"] and chunk["choices"][0]:
+                            choice = chunk["choices"][0]
+                            delta = choice.get("delta", {}) if choice else {}
                             
                             if "content" in delta:
                                 content_chunks.append(delta["content"])
                             
                             # Track finish reason
-                            if "finish_reason" in chunk["choices"][0]:
-                                finish_reason = chunk["choices"][0]["finish_reason"]
+                            if choice and "finish_reason" in choice:
+                                finish_reason = choice["finish_reason"]
                         
                         # Extract usage information (usually in the last chunk)
-                        if "usage" in chunk:
+                        if "usage" in chunk and chunk["usage"]:
                             usage = chunk["usage"]
                             token_usage = TokenUsage(
-                                input_tokens=usage.get("prompt_tokens", 0),
-                                output_tokens=usage.get("completion_tokens", 0),
-                                total_tokens=usage.get("total_tokens", 0)
+                                prompt_tokens=usage.get("prompt_tokens", 0) if usage else 0,
+                                completion_tokens=usage.get("completion_tokens", 0) if usage else 0,
+                                total_tokens=usage.get("total_tokens", 0) if usage else 0
                             )
                         
                         # Update progress
@@ -253,28 +274,46 @@ class DeepSeekProvider(LLMProvider):
                     except json.JSONDecodeError as e:
                         self.logger.warning(f"Failed to parse streaming chunk: {e}")
                         continue
+                    except Exception as e:
+                        self.logger.error(f"Error processing streaming chunk: {e}")
+                        self.logger.debug(f"Chunk data: {line_data}")
+                        continue
         
-        # Final progress
-        if progress_callback:
-            progress_callback(1.0)
-        
-        # Combine content
+        # Combine content first
         content = "".join(content_chunks)
+        
+        # Calculate final provider progress based on actual response
+        if progress_callback:
+            # Use the last dynamic progress or base streaming progress
+            base_streaming_progress = min(0.95, chunks_received / max(total_estimated_chunks, 1))
+            final_progress = self.calculate_provider_progress(
+                base_progress=base_streaming_progress,
+                content_length=len(content) if content else 0,
+                has_finish_reason=bool(finish_reason),
+                is_streaming=True
+            )
+            progress_callback(final_progress)
         
         # If no usage info was provided, estimate it
         if not token_usage:
             # Rough estimation based on content length
+            # Extract prompt from payload for estimation
+            prompt_text = ""
+            if "messages" in payload:
+                prompt_text = " ".join(msg.get("content", "") for msg in payload["messages"] if msg and isinstance(msg, dict))
+            
             token_usage = TokenUsage(
-                input_tokens=len(prompt) // 4,  # Rough estimate
-                output_tokens=len(content) // 4,
-                total_tokens=(len(prompt) + len(content)) // 4
+                prompt_tokens=len(prompt_text) // 4,  # Rough estimate
+                completion_tokens=len(content) // 4,
+                total_tokens=(len(prompt_text) + len(content)) // 4
             )
         
         return LLMResponse(
             content=content,
+            provider=self.name,
             model=self.config.model,
-            usage=token_usage,
-            raw_response={"finish_reason": finish_reason}
+            token_usage=token_usage,
+            metadata={"finish_reason": finish_reason}
         )
     
     async def generate_test_cases(

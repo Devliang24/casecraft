@@ -28,6 +28,8 @@ class OutputConfig(BaseModel):
         default="{method}_{path_slug}.json",
         description="Template for output filenames"
     )
+    include_timestamp: bool = Field(default=True, description="Include timestamp in filenames")
+    timestamp_format: str = Field(default="%Y%m%d_%H%M%S", description="Timestamp format for filenames")
 
 
 class ProcessingConfig(BaseModel):

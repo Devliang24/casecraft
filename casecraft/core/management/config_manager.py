@@ -140,6 +140,8 @@ class ConfigManager:
             'CASECRAFT_OUTPUT_DIRECTORY': 'output.directory',
             'CASECRAFT_OUTPUT_ORGANIZE_BY_TAG': 'output.organize_by_tag',
             'CASECRAFT_OUTPUT_FILENAME_TEMPLATE': 'output.filename_template',
+            'CASECRAFT_OUTPUT_INCLUDE_TIMESTAMP': 'output.include_timestamp',
+            'CASECRAFT_OUTPUT_TIMESTAMP_FORMAT': 'output.timestamp_format',
             'CASECRAFT_PROCESSING_WORKERS': 'processing.workers',
             'CASECRAFT_PROCESSING_INCLUDE_TAGS': 'processing.include_tags',
             'CASECRAFT_PROCESSING_EXCLUDE_TAGS': 'processing.exclude_tags',
