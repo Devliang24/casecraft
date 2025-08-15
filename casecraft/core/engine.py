@@ -188,7 +188,9 @@ class GeneratorEngine:
                     )
                     
                     filtered_count = len(api_spec.endpoints)
-                    self.logger.info(f"🔍 After filtering: {filtered_count}/{original_count} endpoint(s) to process")
+                    if not self.quiet:
+                        self.console.print(f"[blue]🔍 After filtering: {filtered_count}/{original_count} endpoint(s) to process[/blue]")
+                    self.logger.file_only(f"After filtering: {filtered_count}/{original_count} endpoint(s) to process", level="INFO")
                     if filtered_count < original_count:
                         self.logger.file_only(f"Filtered out {original_count - filtered_count} endpoints", level="DEBUG")
                 
@@ -293,8 +295,8 @@ class GeneratorEngine:
                 api_content = await self.api_parser._read_from_file(source)
                 self.logger.file_only(f"Read {len(api_content)} bytes from file", level="DEBUG")
             
-            # Log endpoint statistics (keep this in terminal for user visibility)
-            self.logger.info(f"📊 Loaded {len(api_spec.endpoints)} endpoints from API specification")
+            # Log endpoint statistics to file
+            self.logger.file_only(f"📊 Loaded {len(api_spec.endpoints)} endpoints from API specification", level="INFO")
             self.logger.file_only(f"Endpoints by method: " + 
                             ", ".join(f"{method}: {count}" 
                                     for method, count in self._count_endpoints_by_method(api_spec).items()), level="DEBUG")
@@ -382,7 +384,7 @@ class GeneratorEngine:
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
             console=self.console,
-            transient=False  # Keep progress bar visible
+            transient=True  # Clear progress bar when done or on error
         ) as progress:
             
             task = progress.add_task("🚀 生成测试用例中...", total=100)  # Use percentage
@@ -445,12 +447,13 @@ class GeneratorEngine:
             if generation_result.token_usage:
                 # Format token usage for better display
                 usage = generation_result.token_usage
-                self.logger.info(
+                self.logger.file_only(
                     f"📊 Token Usage - Model: {usage.model} | "
                     f"Input: {usage.prompt_tokens:,} | "
                     f"Output: {usage.completion_tokens:,} | "
                     f"Total: {usage.total_tokens:,} | "
-                    f"Endpoint: {usage.endpoint_id}"
+                    f"Endpoint: {usage.endpoint_id}",
+                    level="INFO"
                 )
                 result.add_token_usage(generation_result.token_usage, success=True)
                 self.logger.file_only(f"Result has_token_usage: {result.has_token_usage()}, total_calls: {result.token_statistics.total_calls}", level="DEBUG")
@@ -493,6 +496,15 @@ class GeneratorEngine:
             result.failed_count += 1
             result.failed_endpoints.append(f"{endpoint_id}: {str(e)}")
             
+            # Update progress on failure - based on actual success count
+            current_progress = int((result.generated_count / total_endpoints) * 100)
+            progress.update(
+                task_id,
+                completed=current_progress
+                # Don't update description on failure, keep original "🚀 生成测试用例中..."
+            )
+            
+            # Then show error messages
             self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
             
             # Show detailed error in verbose mode, truncated otherwise
@@ -502,28 +514,31 @@ class GeneratorEngine:
                 self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
                 
                 # Log detailed error information for debugging
-                self.logger.error(f"LLM generation failed for {endpoint_id}: {full_error}")
+                self.logger.file_only(f"LLM generation failed for {endpoint_id}: {full_error}", level="ERROR")
                 
                 # If this is an LLMError, try to extract more details
                 if isinstance(e, (LLMError, LLMRateLimitError)):
-                    self.logger.debug(f"LLM error type: {type(e).__name__}")
+                    self.logger.file_only(f"LLM error type: {type(e).__name__}", level="DEBUG")
                     if hasattr(e, '__cause__') and e.__cause__:
-                        self.logger.debug(f"Underlying cause: {e.__cause__}")
+                        self.logger.file_only(f"Underlying cause: {e.__cause__}", level="DEBUG")
             else:
-                # Show truncated error in normal mode
-                self.console.print(f"    [dim red]Reason: {str(e)[:80]}...[/dim red]")
-            
-            # Update progress even on failure
-            progress.update(
-                task_id,
-                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
-                description=f"失败: {endpoint_id}"
-            )
+                # Show error in normal mode with proper wrapping
+                error_msg = str(e)
+                self.console.print(f"    [dim red]Reason: {error_msg}[/dim red]", soft_wrap=True)
             
         except Exception as e:
             result.failed_count += 1
             result.failed_endpoints.append(f"{endpoint_id}: Unexpected error: {str(e)}")
             
+            # Update progress on failure - based on actual success count
+            current_progress = int((result.generated_count / total_endpoints) * 100)
+            progress.update(
+                task_id,
+                completed=current_progress
+                # Don't update description on failure, keep original "🚀 生成测试用例中..."
+            )
+            
+            # Then show error messages
             self.console.print(f"  [red]✗[/red] 意外错误 - {endpoint_id}")
             
             # Show detailed error in verbose mode, truncated otherwise
@@ -533,20 +548,14 @@ class GeneratorEngine:
                 self.console.print(f"    [dim red]详细错误: {full_error}[/dim red]")
                 
                 # Log detailed error information for debugging
-                self.logger.error(f"Unexpected error for {endpoint_id}: {full_error}")
-                self.logger.debug(f"Error type: {type(e).__name__}")
+                self.logger.file_only(f"Unexpected error for {endpoint_id}: {full_error}", level="ERROR")
+                self.logger.file_only(f"Error type: {type(e).__name__}", level="DEBUG")
                 if hasattr(e, '__cause__') and e.__cause__:
-                    self.logger.debug(f"Underlying cause: {e.__cause__}")
+                    self.logger.file_only(f"Underlying cause: {e.__cause__}", level="DEBUG")
             else:
-                # Show truncated error in normal mode
-                self.console.print(f"    [dim red]错误: {str(e)[:80]}...[/dim red]")
-            
-            # Update progress even on failure
-            progress.update(
-                task_id,
-                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
-                description=f"失败: {endpoint_id}"
-            )
+                # Show error in normal mode with proper wrapping
+                error_msg = str(e)
+                self.console.print(f"    [dim red]错误: {error_msg}[/dim red]", soft_wrap=True)
     
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:
         """Save test case collection to file.

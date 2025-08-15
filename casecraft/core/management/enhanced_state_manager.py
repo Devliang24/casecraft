@@ -9,6 +9,7 @@ import time
 
 import aiofiles
 from pydantic import ValidationError
+from rich.console import Console
 
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.state import CaseCraftState, EndpointState, ProjectConfig, ProcessingStatistics
@@ -195,56 +196,62 @@ class EnhancedStateManager(StateManager):
             "recommendations": self.get_provider_recommendations()[:3]  # Top 3
         }
     
-    def print_statistics_report(self) -> None:
-        """Print a formatted statistics report to console."""
+    def print_statistics_report(self, console: Optional[Console] = None) -> None:
+        """Print a formatted statistics report to console.
+        
+        Args:
+            console: Rich console instance for output. If None, creates a new one.
+        """
+        if console is None:
+            console = Console()
         summary = self.get_statistics_summary()
         
-        print("\n" + "="*60)
-        print("📊 CaseCraft Statistics Report")
-        print("="*60)
+        console.print("\n[dim]" + "="*60 + "[/dim]")
+        console.print("[bold cyan]📊 CaseCraft Statistics Report[/bold cyan]")
+        console.print("[dim]" + "="*60 + "[/dim]")
         
         # Generation statistics
         if summary.get("generation"):
-            print("\n📝 Generation Summary:")
+            console.print("\n[yellow]📝 Generation Summary:[/yellow]")
             gen = summary["generation"]
-            print(f"  • Total Endpoints: {gen.get('total_endpoints', 0)}")
-            print(f"  • Generated: {gen.get('generated_count', 0)}")
-            print(f"  • Skipped: {gen.get('skipped_count', 0)}")
-            print(f"  • Failed: {gen.get('failed_count', 0)}")
+            console.print(f"  • Total Endpoints: [bold]{gen.get('total_endpoints', 0)}[/bold]")
+            console.print(f"  • Generated: [green]{gen.get('generated_count', 0)}[/green]")
+            console.print(f"  • Skipped: [dim]{gen.get('skipped_count', 0)}[/dim]")
+            console.print(f"  • Failed: [red]{gen.get('failed_count', 0)}[/red]")
         
         # Provider performance
         if summary.get("providers"):
-            print("\n🚀 Provider Performance:")
+            console.print("\n[cyan]🚀 Provider Performance:[/cyan]")
             for provider, stats in summary["providers"].items():
-                print(f"\n  {provider}:")
-                print(f"    • Requests: {stats['requests']}")
-                print(f"    • Success Rate: {stats['success_rate']}")
-                print(f"    • Avg Response: {stats['avg_response_time']}")
-                print(f"    • Avg Tokens: {stats['avg_tokens']}")
+                console.print(f"\n  [bold]{provider}:[/bold]")
+                console.print(f"    • Requests: [bold]{stats['requests']}[/bold]")
+                console.print(f"    • Success Rate: [green]{stats['success_rate']}[/green]")
+                console.print(f"    • Avg Response: [blue]{stats['avg_response_time']}[/blue]")
+                console.print(f"    • Avg Tokens: [blue]{stats['avg_tokens']}[/blue]")
         
         # Cost summary
         # Token summary
         if summary.get("providers"):
             total_tokens = sum(perf["total_tokens"] for perf in summary["providers"].values())
             if total_tokens > 0:
-                print(f"\n📊 Token Usage:")
-                print(f"  • Total Tokens: {total_tokens:,}")
+                console.print(f"\n[cyan]📊 Token Usage:[/cyan]")
+                console.print(f"  • Total Tokens: [bold]{total_tokens:,}[/bold]")
                 if len(summary["providers"]) > 1:
-                    print("  • By Provider:")
+                    console.print("  • By Provider:")
                     for provider, stats in summary["providers"].items():
-                        print(f"    - {provider}: {stats['total_tokens']:,} tokens")
+                        console.print(f"    - [blue]{provider}[/blue]: [bold]{stats['total_tokens']:,}[/bold] tokens")
         
         # Fallback statistics
         if summary.get("fallbacks"):
             fb = summary["fallbacks"]
-            print(f"\n🔄 Fallback Statistics:")
-            print(f"  • Total Fallbacks: {fb['total_fallbacks']}")
-            print(f"  • Successful: {fb['successful_fallbacks']}")
+            console.print(f"\n[yellow]🔄 Fallback Statistics:[/yellow]")
+            console.print(f"  • Total Fallbacks: [bold]{fb['total_fallbacks']}[/bold]")
+            console.print(f"  • Successful: [green]{fb['successful_fallbacks']}[/green]")
         
         # Recommendations
         if summary.get("recommendations"):
-            print(f"\n⭐ Recommended Providers (by performance):")
+            console.print(f"\n[cyan]⭐ Recommended Providers (by performance):[/cyan]")
             for i, provider in enumerate(summary["recommendations"], 1):
-                print(f"  {i}. {provider}")
+                console.print(f"  [green]{i}.[/green] [bold]{provider}[/bold]")
         
-        print("\n" + "="*60 + "\n")
+        console.print("\n[dim]" + "="*60 + "[/dim]\n")

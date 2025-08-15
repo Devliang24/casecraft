@@ -131,7 +131,7 @@ class LLMClient:
             )
             
         except Exception as e:
-            self.logger.error(f"❌ Provider generation failed: {str(e)}")
+            self.logger.error(f"\n❌ Provider generation failed: {str(e)}")
             raise LLMError(f"Provider error: {e}") from e
     
     async def close(self) -> None:

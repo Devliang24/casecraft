@@ -381,7 +381,16 @@ def _show_generation_results(result: GenerationResult) -> None:
     if result.failed_endpoints:
         console.print(f"\n[red]❌ Failed endpoints:[/red]")
         for failure in result.failed_endpoints[:3]:  # Show first 3
-            console.print(f"  • {failure}")
+            # Split endpoint and error for better formatting
+            if ": " in failure:
+                parts = failure.split(": ", 1)
+                endpoint = parts[0]
+                error = parts[1] if len(parts) > 1 else ""
+                console.print(f"  • [bold]{endpoint}[/bold]:")
+                # Show error with indentation and wrapping
+                console.print(f"    [dim red]{error}[/dim red]", soft_wrap=True)
+            else:
+                console.print(f"  • {failure}", soft_wrap=True)
         
         if len(result.failed_endpoints) > 3:
             console.print(f"  ... and {len(result.failed_endpoints) - 3} more")
@@ -899,7 +908,7 @@ def _show_results_with_provider_stats(result: GenerationResult, state_manager: E
     
     # Show provider statistics
     if not dry_run:
-        state_manager.print_statistics_report()
+        state_manager.print_statistics_report(console)
 
 
 def _show_multi_provider_results(result, state_manager: EnhancedStateManager) -> None:
@@ -925,7 +934,7 @@ def _show_multi_provider_results(result, state_manager: EnhancedStateManager) ->
             console.print(f"  • {provider}: {count} endpoints")
     
     # Show statistics report
-    state_manager.print_statistics_report()
+    state_manager.print_statistics_report(console)
 
 
 async def _update_multi_provider_stats(

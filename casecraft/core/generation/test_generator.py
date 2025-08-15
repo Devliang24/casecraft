@@ -191,7 +191,7 @@ class TestCaseGenerator:
             try:
                 # Build prompt - use enhanced version for retries
                 if attempt > 0 and last_error:
-                    self.logger.info(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint_id}")
+                    self.logger.file_only(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint_id}", level="INFO")
                     prompt = self._build_prompt_with_retry_hints(endpoint, last_error, attempt)
                     system_prompt = self._get_system_prompt_with_retry_emphasis()
                 else:
@@ -286,11 +286,11 @@ class TestCaseGenerator:
                 
             except (TestGeneratorError, ValidationError, json.JSONDecodeError) as e:
                 last_error = str(e)
-                self.logger.warning(f"Attempt {attempt + 1} failed for {endpoint.get_endpoint_id()}: {e}")
+                self.logger.file_only(f"Attempt {attempt + 1} failed for {endpoint.get_endpoint_id()}: {e}", level="WARNING")
                 
                 # Check if we should retry
                 if self._should_retry(e) and attempt < max_attempts - 1:
-                    self.logger.info(f"Will retry with enhanced prompt for {endpoint.get_endpoint_id()}")
+                    self.logger.file_only(f"Will retry with enhanced prompt for {endpoint.get_endpoint_id()}", level="INFO")
                     await asyncio.sleep(2)  # Brief delay before retry
                     continue
                 else:
@@ -374,7 +374,7 @@ class TestCaseGenerator:
                 
                 # If it's a single test case, we'll handle it in parsing
                 if 'test_id' in parsed or 'name' in parsed:
-                    self.logger.warning("Response is a single test case object, will wrap in array")
+                    self.logger.file_only("Response is a single test case object, will wrap in array", level="WARNING")
             
             # Check if it's an empty response
             if not parsed:
@@ -725,7 +725,7 @@ Return the test cases as a JSON array:"""
         
         if not isinstance(test_data, list):
             # Special handling for non-array responses (e.g., from Kimi provider)
-            self.logger.warning(f"Response is not an array, attempting to extract test cases from {type(test_data)}")
+            self.logger.file_only(f"Response is not an array, attempting to extract test cases from {type(test_data)}", level="WARNING")
             
             if isinstance(test_data, dict):
                 # Try to find an array field in the response
@@ -739,7 +739,7 @@ Return the test cases as a JSON array:"""
                 for key in possible_keys:
                     if key in test_data and isinstance(test_data[key], list):
                         extracted_array = test_data[key]
-                        self.logger.info(f"Extracted test cases from '{key}' field: {len(extracted_array)} items")
+                        self.logger.file_only(f"Extracted test cases from '{key}' field: {len(extracted_array)} items", level="INFO")
                         break
                 
                 # Check for nested arrays
@@ -749,7 +749,7 @@ Return the test cases as a JSON array:"""
                             for nested_key in possible_keys:
                                 if nested_key in value and isinstance(value[nested_key], list):
                                     extracted_array = value[nested_key]
-                                    self.logger.info(f"Extracted test cases from nested '{key}.{nested_key}': {len(extracted_array)} items")
+                                    self.logger.file_only(f"Extracted test cases from nested '{key}.{nested_key}': {len(extracted_array)} items", level="INFO")
                                     break
                         if extracted_array:
                             break
@@ -764,7 +764,7 @@ Return the test cases as a JSON array:"""
                                 test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description']
                                 if any(indicator in first_item for indicator in test_indicators):
                                     extracted_array = value
-                                    self.logger.info(f"Found test case-like array at '{key}': {len(value)} items")
+                                    self.logger.file_only(f"Found test case-like array at '{key}': {len(value)} items", level="INFO")
                                     break
                 
                 if extracted_array:
@@ -773,7 +773,7 @@ Return the test cases as a JSON array:"""
                     # Check if the entire dict is a single test case
                     test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description', 'expected_status', 'status']
                     if any(indicator in test_data for indicator in test_indicators):
-                        self.logger.info("Converting single test case object to array")
+                        self.logger.file_only("Converting single test case object to array", level="INFO")
                         test_data = [test_data]
                     else:
                         # Log the structure for debugging
@@ -784,7 +784,7 @@ Return the test cases as a JSON array:"""
                             try:
                                 with open(debug_file, 'w', encoding='utf-8') as f:
                                     json.dump(test_data, f, indent=2, ensure_ascii=False)
-                                self.logger.info(f"Failed response saved to {debug_file}")
+                                self.logger.file_only(f"Failed response saved to {debug_file}", level="INFO")
                             except Exception:
                                 pass
                         raise TestGeneratorError(f"LLM response must be a JSON array of test cases. Got dict with keys: {list(test_data.keys())[:10]}")
@@ -800,7 +800,7 @@ Return the test cases as a JSON array:"""
                     body_str = test_case_data['body']
                     # Check if it looks like URL-encoded data
                     if '=' in body_str and '&' in body_str:
-                        self.logger.warning(f"Test case {i+1}: body is URL-encoded string, converting to JSON object")
+                        self.logger.file_only(f"Test case {i+1}: body is URL-encoded string, converting to JSON object", level="WARNING")
                         # Parse URL-encoded string
                         import urllib.parse
                         params = urllib.parse.parse_qs(body_str)
@@ -810,10 +810,10 @@ Return the test cases as a JSON array:"""
                         # Try to parse as JSON string
                         try:
                             test_case_data['body'] = json.loads(body_str)
-                            self.logger.warning(f"Test case {i+1}: body was JSON string, converted to object")
+                            self.logger.file_only(f"Test case {i+1}: body was JSON string, converted to object", level="WARNING")
                         except json.JSONDecodeError:
                             # If all else fails, wrap in an object
-                            self.logger.warning(f"Test case {i+1}: body is plain string, wrapping in object")
+                            self.logger.file_only(f"Test case {i+1}: body is plain string, wrapping in object", level="WARNING")
                             test_case_data['body'] = {"data": body_str}
                 
                 # Validate against schema
@@ -895,7 +895,7 @@ Return the test cases as a JSON array:"""
             )
         
         # Log test case distribution with complexity info
-        self.logger.info(f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary")
+        self.logger.file_only(f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary", level="INFO")
         
         # Validate that each test case has required fields
         for i, test_case in enumerate(test_cases):

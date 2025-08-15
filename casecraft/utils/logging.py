@@ -323,7 +323,7 @@ class CaseCraftLogger:
     def info(self, message: str, **kwargs) -> None:
         """Log info message."""
         formatted = self._format_message(message, "INFO")
-        self.console.print(formatted)
+        self.console.print(formatted, soft_wrap=True)
         self.logger.info(message, **kwargs)
         
         # Also log to file if configured
@@ -333,7 +333,7 @@ class CaseCraftLogger:
     def warning(self, message: str, **kwargs) -> None:
         """Log warning message."""
         formatted = self._format_message(message, "WARNING")
-        self.console.print(formatted)
+        self.console.print(formatted, soft_wrap=True)
         self.logger.warning(message, **kwargs)
         
         # Also log to file if configured
@@ -343,7 +343,7 @@ class CaseCraftLogger:
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
         formatted = self._format_message(message, "ERROR")
-        self.console.print(formatted)
+        self.console.print(formatted, soft_wrap=True)
         self.logger.error(message, **kwargs)
         
         # Also log to file if configured
@@ -357,7 +357,7 @@ class CaseCraftLogger:
             formatted = self._format_message(f"✓ {message}", "SUCCESS")
         else:
             formatted = self._format_message(message, "SUCCESS")
-        self.console.print(formatted)
+        self.console.print(formatted, soft_wrap=True)
         self.logger.info(f"SUCCESS: {message}", **kwargs)
         
         # Also log to file if configured
@@ -371,7 +371,7 @@ class CaseCraftLogger:
             formatted = self._format_message(f"→ {message}", "PROGRESS")
         else:
             formatted = self._format_message(message, "PROGRESS")
-        self.console.print(formatted)
+        self.console.print(formatted, soft_wrap=True)
         self.logger.info(f"PROGRESS: {message}", **kwargs)
         
         # Also log to file if configured

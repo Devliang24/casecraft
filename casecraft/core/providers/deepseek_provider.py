@@ -141,7 +141,10 @@ class DeepSeekProvider(LLMProvider):
             try:
                 error_data = response.json()
                 if "error" in error_data:
-                    error_msg = f"DeepSeek API error: {error_data['error'].get('message', error_data['error'])}"
+                    if isinstance(error_data['error'], dict):
+                        error_msg = f"DeepSeek API error: {error_data['error'].get('message', error_data['error'])}"
+                    else:
+                        error_msg = f"DeepSeek API error: {error_data.get('error', 'Unknown error')}"
             except:
                 pass
             raise ProviderGenerationError(error_msg)
@@ -200,7 +203,10 @@ class DeepSeekProvider(LLMProvider):
                 try:
                     error_data = json.loads(error_text)
                     if "error" in error_data:
-                        error_msg = f"DeepSeek API error: {error_data['error'].get('message', error_data['error'])}"
+                        if isinstance(error_data['error'], dict):
+                            error_msg = f"DeepSeek API error: {error_data['error'].get('message', error_data['error'])}"
+                        else:
+                            error_msg = f"DeepSeek API error: {error_data.get('error', 'Unknown error')}"
                 except:
                     pass
                 raise ProviderGenerationError(error_msg)
