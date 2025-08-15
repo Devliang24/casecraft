@@ -18,7 +18,7 @@ class ComplexityBasedStrategy(ProviderStrategy):
         Args:
             providers: List of provider names
             complexity_mapping: Optional mapping of complexity levels to providers
-                               Default: {"simple": local, "medium": qwen/kimi, "complex": glm}
+                               Default: {"simple": local, "medium": qwen, "complex": glm}
         """
         super().__init__(providers)
         
@@ -41,11 +41,9 @@ class ComplexityBasedStrategy(ProviderStrategy):
         else:
             mapping["simple"] = self.providers[0]
         
-        # Prefer qwen/kimi for medium complexity (balanced)
+        # Prefer qwen for medium complexity (balanced)
         if "qwen" in self.providers:
             mapping["medium"] = "qwen"
-        elif "kimi" in self.providers:
-            mapping["medium"] = "kimi"
         elif "local" in self.providers:
             mapping["medium"] = "local"
         else:
@@ -54,8 +52,6 @@ class ComplexityBasedStrategy(ProviderStrategy):
         # Prefer glm for complex endpoints (high accuracy)
         if "glm" in self.providers:
             mapping["complex"] = "glm"
-        elif "kimi" in self.providers:
-            mapping["complex"] = "kimi"
         else:
             mapping["complex"] = self.providers[0]
         

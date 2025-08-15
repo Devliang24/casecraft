@@ -41,7 +41,7 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, log_file: Optional[str],
     """CaseCraft: Generate API test cases using multiple LLM providers.
     
     A CLI tool that parses API documentation (OpenAPI/Swagger) and uses
-    various LLM providers (GLM, Qwen, Kimi, local models) to generate 
+    various LLM providers (GLM, Qwen, local models) to generate 
     structured test case data in JSON format.
     """
     ctx.ensure_object(dict)
@@ -146,7 +146,7 @@ def init() -> None:
 )
 @click.option(
     "--provider",
-    help="Use specific LLM provider for all endpoints (e.g., glm, qwen, kimi, local)"
+    help="Use specific LLM provider for all endpoints (e.g., glm, qwen, local)"
 )
 @click.option(
     "--providers",
@@ -208,7 +208,7 @@ def generate(
         casecraft generate api.json --provider glm
         
         # Multiple providers with round-robin
-        casecraft generate api.json --providers glm,qwen,kimi
+        casecraft generate api.json --providers glm,qwen
         
         # Manual mapping
         casecraft generate api.json --provider-map "/users:qwen,/products:glm"

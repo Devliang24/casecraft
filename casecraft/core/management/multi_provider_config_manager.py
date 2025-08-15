@@ -193,7 +193,7 @@ class MultiProviderConfigManager(ConfigManager):
                     "  --provider-map <mapping>：指定端点到提供商的映射\n"
                     "\n或设置环境变量：\n"
                     "  CASECRAFT_PROVIDER=glm\n"
-                    "  CASECRAFT_PROVIDERS=glm,qwen,kimi\n"
+                    "  CASECRAFT_PROVIDERS=glm,qwen\n"
                 )
     
     def convert_to_base_config(self, provider_config: ProviderConfig) -> BaseProviderConfig:

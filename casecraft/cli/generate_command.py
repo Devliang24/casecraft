@@ -807,9 +807,6 @@ def _register_provider(provider_name: str) -> None:
     elif provider_lower == "qwen":
         from casecraft.core.providers.qwen_provider import QwenProvider
         ProviderRegistry.register("qwen", QwenProvider)
-    elif provider_lower == "kimi":
-        from casecraft.core.providers.kimi_provider import KimiProvider
-        ProviderRegistry.register("kimi", KimiProvider)
     elif provider_lower == "local":
         from casecraft.core.providers.local_provider import LocalProvider
         ProviderRegistry.register("local", LocalProvider)
@@ -1099,14 +1096,14 @@ You must specify an LLM provider. Options:
    [cyan]casecraft generate api.json --provider glm[/cyan]
 
 2. Multiple providers:
-   [cyan]casecraft generate api.json --providers glm,qwen,kimi[/cyan]
+   [cyan]casecraft generate api.json --providers glm,qwen[/cyan]
 
 3. Manual mapping:
    [cyan]casecraft generate api.json --provider-map "/users:qwen,/products:glm"[/cyan]
 
 4. Set via environment:
    [cyan]export CASECRAFT_PROVIDER=glm[/cyan]
-   [cyan]export CASECRAFT_PROVIDERS=glm,qwen,kimi[/cyan]
+   [cyan]export CASECRAFT_PROVIDERS=glm,qwen[/cyan]
 """
     
     console.print(Panel(

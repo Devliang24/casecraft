@@ -343,7 +343,8 @@ class CaseCraftLogger:
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
         formatted = self._format_message(message, "ERROR")
-        self.console.print(formatted, soft_wrap=True)
+        # Force newline and use end='\n' to ensure proper line breaks during progress bar display
+        self.console.print(f"\n{formatted}", soft_wrap=True, end='\n')
         self.logger.error(message, **kwargs)
         
         # Also log to file if configured

@@ -97,7 +97,6 @@ merge_record.txt
 merge_report.txt
 
 # Debug and response files
-kimi_response_*.json
 debug_responses/
 my.logclear
 my.log

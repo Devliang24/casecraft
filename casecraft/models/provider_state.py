@@ -169,6 +169,5 @@ class ProviderStatistics(BaseModel):
 DEFAULT_COST_RATES = {
     "glm": {"input": 0.001, "output": 0.002},  # Example rates
     "qwen": {"input": 0.0008, "output": 0.0016},
-    "kimi": {"input": 0.003, "output": 0.006},
     "local": {"input": 0.0, "output": 0.0},  # Free for local
 }

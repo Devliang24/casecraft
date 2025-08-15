@@ -5,7 +5,6 @@
 CaseCraft 是一个 API 测试用例生成工具，目前仅支持智谱 GLM 单一 LLM 提供商。为了提高系统的灵活性、可靠性和性能，需要支持多个 LLM 提供商，包括：
 - 智谱 GLM（已支持）
 - 阿里通义千问 (Qwen)
-- Moonshot Kimi
 - 本地部署模型（Ollama、vLLM 等）
 
 ## 2. 设计目标
@@ -31,7 +30,7 @@ CaseCraft 是一个 API 测试用例生成工具，目前仅支持智谱 GLM 单
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                       CLI Interface                      │
-│         casecraft generate --providers glm,qwen,kimi     │
+│         casecraft generate --providers glm,qwen          │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
@@ -44,10 +43,10 @@ CaseCraft 是一个 API 测试用例生成工具，目前仅支持智谱 GLM 单
                      │
 ┌────────────────────▼────────────────────────────────────┐
 │                   Provider Registry                      │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐      │
-│  │   GLM   │ │  Qwen   │ │  Kimi   │ │  Local  │      │
-│  │Provider │ │Provider │ │Provider │ │Provider │      │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘      │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐              │
+│  │   GLM   │ │  Qwen   │ │  Local  │              │
+│  │Provider │ │Provider │ │Provider │              │
+│  └─────────┘ └─────────┘ └─────────┘              │
 └──────────────────────────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
@@ -135,7 +134,7 @@ class ProviderRegistry:
 #### 3.3.1 环境变量配置格式
 ```env
 # 提供商列表（注意：没有默认值，必须显式配置）
-CASECRAFT_PROVIDERS=glm,qwen,kimi,local
+CASECRAFT_PROVIDERS=glm,qwen,local
 
 # 每个提供商的配置（统一格式）
 CASECRAFT_{PROVIDER}_MODEL=model_name
@@ -151,7 +150,7 @@ CASECRAFT_{PROVIDER}_WORKERS=max_workers
 CASECRAFT_PROVIDER_STRATEGY=round_robin
 # 注意：没有默认提供商，必须显式指定
 CASECRAFT_FALLBACK_ENABLED=true
-CASECRAFT_FALLBACK_CHAIN=glm,qwen,kimi,local
+CASECRAFT_FALLBACK_CHAIN=glm,qwen,local
 ```
 
 #### 3.3.2 配置模型
@@ -411,7 +410,7 @@ def validate_provider_args(provider, providers, provider_map):
             "  --provider-map <mapping>：指定端点到提供商的映射\n"
             "\n示例：\n"
             "  casecraft generate api.json --provider glm\n"
-            "  casecraft generate api.json --providers glm,qwen,kimi"
+            "  casecraft generate api.json --providers glm,qwen"
         )
 ```
 
@@ -429,7 +428,7 @@ Error: 必须指定 LLM 提供商。请使用以下选项之一：
 casecraft generate api.json --provider qwen
 
 # 多提供商轮询
-casecraft generate api.json --providers glm,qwen,kimi --strategy round_robin
+casecraft generate api.json --providers glm,qwen --strategy round_robin
 
 # 手动映射
 casecraft generate api.json --provider-map "/users:qwen,/products:glm"
@@ -531,23 +530,6 @@ class QwenProvider(LLMProvider):
         return 3  # 千问支持 3 并发
 ```
 
-### 7.3 Kimi Provider
-
-```python
-# casecraft/core/providers/kimi_provider.py
-class KimiProvider(LLMProvider):
-    """Moonshot Kimi 提供商"""
-    
-    name = "kimi"
-    
-    async def generate(self, prompt: str, **kwargs) -> LLMResponse:
-        # 实现 Kimi API 调用
-        # Kimi 使用 OpenAI 兼容接口
-        pass
-    
-    def get_max_workers(self) -> int:
-        return 2  # Kimi 支持 2 并发
-```
 
 ### 7.4 Local Provider
 
@@ -590,12 +572,12 @@ class LocalProvider(LLMProvider):
 @pytest.mark.asyncio
 async def test_round_robin_strategy():
     """测试轮询分配策略"""
-    strategy = RoundRobinStrategy(["glm", "qwen", "kimi"])
-    endpoints = [create_mock_endpoint() for _ in range(6)]
+    strategy = RoundRobinStrategy(["glm", "qwen"])
+    endpoints = [create_mock_endpoint() for _ in range(4)]
     
     assignments = [strategy.get_next_provider(e) for e in endpoints]
     
-    assert assignments == ["glm", "qwen", "kimi", "glm", "qwen", "kimi"]
+    assert assignments == ["glm", "qwen", "glm", "qwen"]
 
 @pytest.mark.asyncio
 async def test_fallback_mechanism():
@@ -605,7 +587,7 @@ async def test_fallback_mechanism():
     # 模拟主提供商失败
     with patch.object(primary_provider, 'generate', side_effect=Exception("Failed")):
         result = await handler.generate_with_fallback(
-            endpoint, primary_provider, ["qwen", "kimi"]
+            endpoint, primary_provider, ["qwen"]
         )
     
     assert result.metadata["fallback_from"] == "glm"
@@ -706,7 +688,6 @@ class ProviderLoader:
 ### 阶段 2：提供商实现（第 2 周）
 - GLM 提供商重构
 - Qwen 提供商实现
-- Kimi 提供商实现
 - Local 提供商实现
 
 ### 阶段 3：核心功能（第 3 周）

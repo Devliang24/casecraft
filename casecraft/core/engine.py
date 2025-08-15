@@ -412,7 +412,7 @@ class GeneratorEngine:
                 # Provider instance is required
                 raise GeneratorError("Provider instance is required")
                 
-            self._test_generator = TestCaseGenerator(self._llm_client, api_version)
+            self._test_generator = TestCaseGenerator(self._llm_client, api_version, console=self.console)
             
         except Exception as e:
             raise GeneratorError(f"Failed to initialize LLM components: {e}") from e

@@ -1,6 +1,6 @@
 # CaseCraft - 多 LLM 提供商支持
 
-使用多个 LLM 提供商（GLM、Qwen、Kimi、本地模型）解析 API 文档并生成结构化测试用例的 CLI 工具。
+使用多个 LLM 提供商（GLM、Qwen、本地模型）解析 API 文档并生成结构化测试用例的 CLI 工具。
 
 ## 🎉 新功能：多提供商支持
 
@@ -10,7 +10,6 @@
 |--------|----------|--------|------|
 | **GLM** (智谱) | glm-4.5-airx | 1 | 高质量生成，支持思考模式 |
 | **Qwen** (通义千问) | qwen-max, qwen-plus | 3 | 快速响应，成本较低 |
-| **Kimi** (Moonshot) | moonshot-v1-8k/32k/128k | 2 | 长上下文支持 |
 | **Local** (Ollama/vLLM) | llama2, mistral | 可配置 | 本地部署，无成本 |
 
 ## 🚀 快速开始
@@ -27,7 +26,7 @@ cp .env.example .env
 
 ```env
 # 必须指定提供商（无默认值）
-CASECRAFT_PROVIDERS=glm,qwen,kimi
+CASECRAFT_PROVIDERS=glm,qwen
 
 # GLM 配置
 CASECRAFT_GLM_MODEL=glm-4.5-airx
@@ -37,9 +36,6 @@ CASECRAFT_GLM_API_KEY=your_glm_api_key_here
 CASECRAFT_QWEN_MODEL=qwen-max
 CASECRAFT_QWEN_API_KEY=your_qwen_api_key_here
 
-# Kimi 配置
-CASECRAFT_KIMI_MODEL=moonshot-v1-8k
-CASECRAFT_KIMI_API_KEY=your_kimi_api_key_here
 
 # 本地模型配置（Ollama）
 CASECRAFT_LOCAL_MODEL=llama2
@@ -70,13 +66,13 @@ casecraft generate api.json --provider local
 
 ```bash
 # 轮询分配（默认）
-casecraft generate api.json --providers glm,qwen,kimi --strategy round_robin
+casecraft generate api.json --providers glm,qwen --strategy round_robin
 
 # 随机分配
-casecraft generate api.json --providers glm,qwen,kimi --strategy random
+casecraft generate api.json --providers glm,qwen --strategy random
 
 # 基于复杂度分配
-casecraft generate api.json --providers glm,qwen,kimi --strategy complexity_based
+casecraft generate api.json --providers glm,qwen --strategy complexity_based
 ```
 
 #### 手动映射模式
@@ -85,7 +81,7 @@ casecraft generate api.json --providers glm,qwen,kimi --strategy complexity_base
 
 ```bash
 # 基本映射
-casecraft generate api.json --provider-map "/users:qwen,/products:glm,/orders:kimi"
+casecraft generate api.json --provider-map "/users:qwen,/products:glm"
 
 # 使用通配符
 casecraft generate api.json --provider-map "/api/v1/*:glm,/api/v2/*:qwen"
@@ -105,7 +101,7 @@ casecraft generate api.json --provider-map "GET:/users:glm,POST:/users:qwen"
 CASECRAFT_FALLBACK_ENABLED=true
 
 # 降级链顺序
-CASECRAFT_FALLBACK_CHAIN=glm,qwen,kimi,local
+CASECRAFT_FALLBACK_CHAIN=glm,qwen,local
 ```
 
 当主提供商失败时，系统会自动尝试降级链中的下一个提供商。
@@ -171,7 +167,7 @@ CASECRAFT_{PROVIDER}_WORKERS=1
 # 策略配置
 CASECRAFT_PROVIDER_STRATEGY=round_robin
 CASECRAFT_FALLBACK_ENABLED=true
-CASECRAFT_FALLBACK_CHAIN=glm,qwen,kimi
+CASECRAFT_FALLBACK_CHAIN=glm,qwen
 ```
 
 ### 本地模型配置
@@ -195,7 +191,6 @@ CASECRAFT_LOCAL_SERVER_TYPE=vllm
 1. **合理设置并发数**
    - GLM: 1 (API 限制)
    - Qwen: 3 (推荐)
-   - Kimi: 2 (推荐)
    - Local: 根据硬件配置
 
 2. **选择合适的策略**
@@ -240,14 +235,12 @@ CASECRAFT_LOCAL_SERVER_TYPE=vllm
 |--------|----------|----------|----------|
 | GLM-4.5 | ¥0.001/1K | ¥0.002/1K | 高质量要求 |
 | Qwen-Max | ¥0.0008/1K | ¥0.0016/1K | 平衡性价比 |
-| Kimi-8K | ¥0.003/1K | ¥0.006/1K | 长上下文 |
 | Local | 免费 | 免费 | 大批量生成 |
 
 ## 🔗 相关资源
 
 - [GLM API 文档](https://open.bigmodel.cn/dev/api)
 - [Qwen API 文档](https://help.aliyun.com/zh/dashscope/)
-- [Kimi API 文档](https://platform.moonshot.cn/docs)
 - [Ollama 文档](https://ollama.ai/docs)
 
 ## 📝 更新日志

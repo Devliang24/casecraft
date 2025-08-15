@@ -173,7 +173,7 @@ class ConfigManager:
         """Get configuration for a specific provider.
         
         Args:
-            provider_name: Provider name (glm, kimi, qwen, etc.)
+            provider_name: Provider name (glm, qwen, etc.)
             workers: Number of workers from CLI (required)
             
         Returns:

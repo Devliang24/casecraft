@@ -33,17 +33,18 @@ class GenerationResult:
 class TestCaseGenerator:
     """Generates test cases for API endpoints using LLM."""
     
-    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None):
+    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None, console=None):
         """Initialize test case generator.
         
         Args:
             llm_client: LLM client instance
             api_version: API version string
+            console: Optional Rich console for output (helps with progress bar coordination)
         """
         self.llm_client = llm_client
         self.api_version = api_version
         self.headers_analyzer = HeadersAnalyzer()
-        self.logger = CaseCraftLogger("test_generator", show_timestamp=True, show_level=True)
+        self.logger = CaseCraftLogger("test_generator", console=console, show_timestamp=True, show_level=True)
         self._test_case_schema = self._get_test_case_schema()
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:

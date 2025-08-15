@@ -178,28 +178,6 @@ class CostCalculator:
             "output": Decimal("2.00")   # $2.00 per 1M output tokens (estimated)
         },
         
-        # Moonshot Kimi models
-        "moonshot-v1-8k": {
-            "input": Decimal("0.20"),   # $0.20 per 1M input tokens (estimated)
-            "output": Decimal("0.80")   # $0.80 per 1M output tokens (estimated)
-        },
-        "moonshot-v1-32k": {
-            "input": Decimal("0.35"),   # $0.35 per 1M input tokens (estimated)
-            "output": Decimal("1.40")   # $1.40 per 1M output tokens (estimated)
-        },
-        "moonshot-v1-128k": {
-            "input": Decimal("0.60"),   # $0.60 per 1M input tokens (estimated)
-            "output": Decimal("2.40")   # $2.40 per 1M output tokens (estimated)
-        },
-        "kimi-k2-turbo-preview": {
-            "input": Decimal("0.25"),   # $0.25 per 1M input tokens (estimated)
-            "output": Decimal("1.00")   # $1.00 per 1M output tokens (estimated)
-        },
-        "kimi-k2-0711-preview": {
-            "input": Decimal("0.30"),   # $0.30 per 1M input tokens (estimated)
-            "output": Decimal("1.20")   # $1.20 per 1M output tokens (estimated)
-        },
-        
         # Local deployment (customizable)
         "local": {
             "input": Decimal("0.00"),   # Free for local deployment
@@ -259,20 +237,6 @@ class CostCalculator:
                 pricing_key = "qwen-max"
             else:
                 pricing_key = "qwen-plus"  # Default Qwen pricing
-        # Kimi/Moonshot models
-        elif "kimi" in model_lower or "moonshot" in model_lower:
-            if "k2-turbo" in model_lower:
-                pricing_key = "kimi-k2-turbo-preview"
-            elif "k2-0711" in model_lower:
-                pricing_key = "kimi-k2-0711-preview"
-            elif "128k" in model_lower:
-                pricing_key = "moonshot-v1-128k"
-            elif "32k" in model_lower:
-                pricing_key = "moonshot-v1-32k"
-            elif "8k" in model_lower:
-                pricing_key = "moonshot-v1-8k"
-            else:
-                pricing_key = "moonshot-v1-32k"  # Default Kimi pricing
         # Local models
         elif "local" in model_lower:
             if "custom" in model_lower:
@@ -376,20 +340,6 @@ class CostCalculator:
                 pricing_key = "qwen-max"
             else:
                 pricing_key = "qwen-plus"
-        # Kimi/Moonshot models
-        elif "kimi" in model_lower or "moonshot" in model_lower:
-            if "k2-turbo" in model_lower:
-                pricing_key = "kimi-k2-turbo-preview"
-            elif "k2-0711" in model_lower:
-                pricing_key = "kimi-k2-0711-preview"
-            elif "128k" in model_lower:
-                pricing_key = "moonshot-v1-128k"
-            elif "32k" in model_lower:
-                pricing_key = "moonshot-v1-32k"
-            elif "8k" in model_lower:
-                pricing_key = "moonshot-v1-8k"
-            else:
-                pricing_key = "moonshot-v1-32k"
         # Local models
         elif "local" in model_lower:
             if "custom" in model_lower:

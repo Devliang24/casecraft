@@ -97,7 +97,6 @@ async def cleanup_legacy_files(project_root: Optional[Path] = None) -> None:
     # List of legacy files to clean up
     legacy_files = [
         ".casecraft_provider_stats.json",
-        "test_kimi_fix.py",
         "merge_record.txt",
         "merge_report.txt"
     ]
