@@ -19,6 +19,7 @@ from casecraft.core.multi_provider_engine import MultiProviderEngine
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.provider_config import MultiProviderConfig, ProviderConfig
 from casecraft.core.providers.registry import ProviderRegistry
+from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
 
 
 console = Console()
@@ -642,7 +643,8 @@ async def _run_single_provider(
     # 11.5 Pre-check endpoints count and validate workers
     # First do a quick parse to count endpoints
     from casecraft.core.parsing.api_parser import APIParser
-    api_parser = APIParser(timeout=30)
+    api_parse_timeout = int(os.getenv("CASECRAFT_API_PARSE_TIMEOUT", str(DEFAULT_API_PARSE_TIMEOUT)))
+    api_parser = APIParser(timeout=api_parse_timeout)
     api_spec = await api_parser.parse_from_source(source)
     
     # Apply filters to get actual endpoint count

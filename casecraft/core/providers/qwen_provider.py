@@ -17,6 +17,7 @@ from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.core.generation.test_generator import TestCaseGenerator
 from casecraft.utils.logging import get_logger
+from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS
 
 
 class QwenProvider(LLMProvider):
@@ -369,7 +370,7 @@ class QwenProvider(LLMProvider):
                 response = await self.client.post(endpoint, json=payload)
                 
                 # Check for rate limiting
-                if response.status_code == 429:
+                if response.status_code == HTTP_RATE_LIMIT:
                     self.logger.warning(f"Rate limit hit on attempt {attempt + 1}")
                     
                     if attempt < self.config.max_retries:
@@ -394,7 +395,7 @@ class QwenProvider(LLMProvider):
                 
                 self.logger.error(f"HTTP status error {status_code}: {e}")
                 
-                if status_code >= 500 and attempt < self.config.max_retries:
+                if status_code in HTTP_SERVER_ERRORS and attempt < self.config.max_retries:
                     # Server error - retry
                     wait_time = base_wait * (attempt + 1)
                     self.logger.info(f"Server error, waiting {wait_time}s before retry...")

@@ -1,6 +1,7 @@
 """Fallback handler for provider failures."""
 
 import asyncio
+import os
 from typing import List, Optional, Tuple
 import logging
 
@@ -14,6 +15,7 @@ from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.models.provider_config import MultiProviderConfig
+from casecraft.utils.constants import DEFAULT_PROVIDER_SWITCH_DELAY
 
 
 class FallbackHandler:
@@ -100,7 +102,8 @@ class FallbackHandler:
                 )
                 
                 # Wait before trying next provider
-                await asyncio.sleep(5)
+                switch_delay = float(os.getenv("CASECRAFT_PROVIDER_SWITCH_DELAY", str(DEFAULT_PROVIDER_SWITCH_DELAY)))
+                await asyncio.sleep(switch_delay)
                 continue
                 
             except Exception as e:

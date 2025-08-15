@@ -17,6 +17,7 @@ from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.core.generation.test_generator import TestCaseGenerator
 from casecraft.utils.logging import get_logger
+from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS
 
 
 class GLMProvider(LLMProvider):
@@ -345,7 +346,7 @@ class GLMProvider(LLMProvider):
                 self.logger.debug(f"Attempting request (attempt {attempt + 1}/{self.config.max_retries + 1})")
                 response = await self.client.post(endpoint, json=payload)
                 
-                if response.status_code == 429:
+                if response.status_code == HTTP_RATE_LIMIT:
                     # Rate limit hit
                     self.logger.warning(f"Rate limit hit (429) on attempt {attempt + 1}")
                     
@@ -384,7 +385,7 @@ class GLMProvider(LLMProvider):
                 
                 self.logger.error(f"HTTP status error {status_code}: {e}")
                 
-                if status_code >= 500 and attempt < self.config.max_retries:
+                if status_code in HTTP_SERVER_ERRORS and attempt < self.config.max_retries:
                     # Server error - retry
                     wait_time = base_wait * (attempt + 1)
                     self.logger.info(f"Server error, waiting {wait_time}s before retry...")

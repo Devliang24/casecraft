@@ -1,6 +1,7 @@
 """BigModel optimized batch execution strategy for API test generation."""
 
 import asyncio
+import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -8,6 +9,7 @@ import logging
 
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.config import LLMConfig
+from casecraft.utils.constants import DEFAULT_ERROR_RETRY_DELAY, DEFAULT_RETRY_BACKOFF_DELAY
 
 
 class APIComplexity(Enum):
@@ -226,7 +228,8 @@ class AdaptiveBatchProcessor:
                 results["failed"].append((endpoint, str(e)))
                 
                 # Add small delay after errors to avoid rate limits
-                await asyncio.sleep(2.0)
+                error_delay = float(os.getenv("CASECRAFT_ERROR_RETRY_DELAY", str(DEFAULT_ERROR_RETRY_DELAY)))
+                await asyncio.sleep(error_delay)
         
         return results
     
@@ -250,7 +253,8 @@ class AdaptiveBatchProcessor:
         for endpoint, original_error in self.failed_endpoints:
             try:
                 # Add longer delay between retries
-                await asyncio.sleep(5.0)
+                retry_delay = float(os.getenv("CASECRAFT_RETRY_BACKOFF_DELAY", str(DEFAULT_RETRY_BACKOFF_DELAY)))
+                await asyncio.sleep(retry_delay)
                 
                 result = await process_func(endpoint, retry=True)
                 results["recovered"].append((endpoint, result))

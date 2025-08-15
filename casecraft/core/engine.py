@@ -1,6 +1,7 @@
 """Main test case generation engine."""
 
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -20,6 +21,7 @@ from casecraft.models.usage import TokenUsage, TokenStatistics, CostCalculator, 
 from casecraft.utils.logging import CaseCraftLogger, LoggingContext
 from casecraft.utils.exceptions import ErrorHandler, ErrorContext, convert_exception_to_casecraft_error
 from casecraft.utils.concurrency import ConcurrencyController
+from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
 
 
 class GeneratorError(Exception):
@@ -193,7 +195,8 @@ class GeneratorEngine:
         self.error_handler = ErrorHandler(console, verbose=verbose)
         
         # Initialize components
-        self.api_parser = APIParser(timeout=30)
+        api_parse_timeout = int(os.getenv("CASECRAFT_API_PARSE_TIMEOUT", str(DEFAULT_API_PARSE_TIMEOUT)))
+        self.api_parser = APIParser(timeout=api_parse_timeout)
         self.state_manager = EnhancedStateManager()
         self._llm_client: Optional[LLMClient] = None
         self._test_generator: Optional[TestCaseGenerator] = None

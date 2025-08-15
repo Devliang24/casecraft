@@ -17,6 +17,7 @@ from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.core.generation.test_generator import TestCaseGenerator
 from casecraft.utils.logging import get_logger
+from casecraft.utils.constants import HTTP_RATE_LIMIT
 
 
 class DeepSeekProvider(LLMProvider):
@@ -139,7 +140,7 @@ class DeepSeekProvider(LLMProvider):
         if progress_callback:
             progress_callback(0.8)  # Near completion
         
-        if response.status_code == 429:
+        if response.status_code == HTTP_RATE_LIMIT:
             raise ProviderRateLimitError("DeepSeek API rate limit exceeded")
         
         if response.status_code != 200:
@@ -212,7 +213,7 @@ class DeepSeekProvider(LLMProvider):
             "/chat/completions",
             json=payload
         ) as response:
-            if response.status_code == 429:
+            if response.status_code == HTTP_RATE_LIMIT:
                 raise ProviderRateLimitError("DeepSeek API rate limit exceeded")
             
             if response.status_code != 200:

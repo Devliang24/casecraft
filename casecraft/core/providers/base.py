@@ -14,6 +14,7 @@ from casecraft.core.providers.exceptions import (
     ProviderError, ProviderEmptyResponseError, ProviderInvalidFormatError,
     ProviderTimeoutError, ProviderAuthError, ProviderQuotaError, ProviderRateLimitError
 )
+from casecraft.utils.constants import HTTP_RATE_LIMIT
 
 
 class LLMResponse:
@@ -123,7 +124,7 @@ class LLMProvider(ABC):
             return ProviderTimeoutError(self.name, self.config.timeout)
         elif "401" in error_str or "unauthorized" in error_str or "invalid api key" in error_str:
             return ProviderAuthError(self.name)
-        elif "429" in error_str or "rate limit" in error_str:
+        elif str(HTTP_RATE_LIMIT) in error_str or "rate limit" in error_str:
             return ProviderRateLimitError(self.name)
         elif "quota" in error_str or "billing" in error_str:
             return ProviderQuotaError(self.name)
