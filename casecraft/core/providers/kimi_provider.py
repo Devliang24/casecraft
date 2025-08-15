@@ -89,9 +89,13 @@ class KimiProvider(LLMProvider):
                 "messages": messages,
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "1.0"))),
-                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
+                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
                 "stream": self.config.stream
             }
+            
+            # Add stream_options to get token usage in streaming mode
+            if self.config.stream:
+                payload["stream_options"] = {"include_usage": True}
             
             # Add structured output format if enabled
             # Note: Kimi's structured output wraps arrays in an object, 

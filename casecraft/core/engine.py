@@ -176,11 +176,21 @@ class GeneratorEngine:
                 
                 # Apply filters
                 if include_tags or exclude_tags or include_paths or exclude_paths:
+                    original_count = len(api_spec.endpoints)
+                    self.logger.file_only(f"Applying filters: include_tags={include_tags}, exclude_tags={exclude_tags}, "
+                                    f"include_paths={include_paths}, exclude_paths={exclude_paths}", level="DEBUG")
+                    
                     if not self.quiet:
                         self.console.print("[blue]🔍 Applying filters...[/blue]")
+                    
                     api_spec = self.api_parser.filter_endpoints(
                         api_spec, include_tags, exclude_tags, include_paths, exclude_paths
                     )
+                    
+                    filtered_count = len(api_spec.endpoints)
+                    self.logger.info(f"🔍 After filtering: {filtered_count}/{original_count} endpoint(s) to process")
+                    if filtered_count < original_count:
+                        self.logger.file_only(f"Filtered out {original_count - filtered_count} endpoints", level="DEBUG")
                 
                 # Update project state
                 await self.state_manager.update_project_config(source, api_content)
@@ -259,13 +269,35 @@ class GeneratorEngine:
             Tuple of (parsed spec, raw content)
         """
         try:
+            # Log loading start
+            self.logger.file_only(f"📂 Loading API documentation from: {source}")
+            
+            # Detect source type
+            is_url = self.api_parser._is_url(source)
+            self.logger.file_only(f"Source type: {'URL' if is_url else 'Local file'}", level="DEBUG")
+            
             api_spec = await self.api_parser.parse_from_source(source)
             
+            # Log format detection
+            if hasattr(api_spec, 'openapi'):
+                format_info = f"OpenAPI {api_spec.openapi if hasattr(api_spec, 'openapi') else '3.x'}"
+            else:
+                format_info = "Swagger 2.0"
+            self.logger.file_only(f"Document format detected: {format_info}", level="DEBUG")
+            
             # Get content for hashing
-            if self.api_parser._is_url(source):
+            if is_url:
                 api_content = await self.api_parser._fetch_from_url(source)
+                self.logger.file_only(f"Fetched {len(api_content)} bytes from URL", level="DEBUG")
             else:
                 api_content = await self.api_parser._read_from_file(source)
+                self.logger.file_only(f"Read {len(api_content)} bytes from file", level="DEBUG")
+            
+            # Log endpoint statistics (keep this in terminal for user visibility)
+            self.logger.info(f"📊 Loaded {len(api_spec.endpoints)} endpoints from API specification")
+            self.logger.file_only(f"Endpoints by method: " + 
+                            ", ".join(f"{method}: {count}" 
+                                    for method, count in self._count_endpoints_by_method(api_spec).items()), level="DEBUG")
             
             self.console.print(f"\n[green]✓[/green] API documentation loaded successfully")
             self.console.print(f"  📄 Name: [bold]{api_spec.title}[/bold]")
@@ -411,7 +443,19 @@ class GeneratorEngine:
             
             # Add token usage to result statistics
             if generation_result.token_usage:
+                # Format token usage for better display
+                usage = generation_result.token_usage
+                self.logger.info(
+                    f"📊 Token Usage - Model: {usage.model} | "
+                    f"Input: {usage.prompt_tokens:,} | "
+                    f"Output: {usage.completion_tokens:,} | "
+                    f"Total: {usage.total_tokens:,} | "
+                    f"Endpoint: {usage.endpoint_id}"
+                )
                 result.add_token_usage(generation_result.token_usage, success=True)
+                self.logger.file_only(f"Result has_token_usage: {result.has_token_usage()}, total_calls: {result.token_statistics.total_calls}", level="DEBUG")
+            else:
+                self.logger.file_only("No token usage data available from generation_result", level="WARNING")
             
             # Save to file
             output_file = await self._save_test_cases(collection)
@@ -528,8 +572,16 @@ class GeneratorEngine:
         filename = self._generate_filename(collection)
         output_file = output_dir / filename
         
+        # Log save operation
+        self.logger.file_only(f"💾 Saving {len(collection.test_cases)} test cases to: {output_file}")
+        
         # Save JSON
-        output_file.write_text(collection.model_dump_json(indent=2), encoding='utf-8')
+        json_content = collection.model_dump_json(indent=2)
+        output_file.write_text(json_content, encoding='utf-8')
+        
+        # Log file size
+        file_size = len(json_content.encode('utf-8'))
+        self.logger.file_only(f"File saved successfully ({file_size:,} bytes)", level="DEBUG")
         
         return output_file
     
@@ -560,6 +612,18 @@ class GeneratorEngine:
             filename += '.json'
         
         return filename
+    
+    def _count_endpoints_by_method(self, api_spec: APISpecification) -> Dict[str, int]:
+        """Count endpoints by HTTP method.
+        
+        Args:
+            api_spec: API specification
+            
+        Returns:
+            Dictionary of method counts
+        """
+        from collections import Counter
+        return dict(Counter(ep.method for ep in api_spec.endpoints))
     
     def _estimate_generation_time(self, endpoint_count: int) -> float:
         """Estimate generation time for batch processing.

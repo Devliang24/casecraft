@@ -86,8 +86,13 @@ class GLMProvider(LLMProvider):
                 "messages": messages,
                 "think": self.think,
                 "stream": self.config.stream,
-                "temperature": kwargs.get("temperature", self.config.temperature)
+                "temperature": kwargs.get("temperature", self.config.temperature),
+                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")))
             }
+            
+            # Add stream_options to get token usage in streaming mode
+            if self.config.stream:
+                payload["stream_options"] = {"include_usage": True}
             
             # Add structured output format if enabled
             if self.config.use_structured_output:
@@ -210,7 +215,9 @@ class GLMProvider(LLMProvider):
             "messages": messages,
             "think": self.think,
             "stream": True,
-            "temperature": temperature
+            "temperature": temperature,
+            "max_tokens": int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")),
+            "stream_options": {"include_usage": True}  # Get token usage in streaming mode
         }
         
         # Add structured output format if enabled

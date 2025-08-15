@@ -75,6 +75,7 @@ venv.bak/
 test_cases/*
 !test_cases/.gitkeep
 test_output/
+logs/
 *.log
 *.tmp
 *.bak

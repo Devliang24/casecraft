@@ -127,7 +127,7 @@ class LocalProvider(LLMProvider):
             "options": {
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
-                "num_predict": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000")))
+                "num_predict": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")))
             }
         }
         
@@ -289,9 +289,13 @@ class LocalProvider(LLMProvider):
             "messages": messages,
             "temperature": kwargs.get("temperature", self.config.temperature),
             "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "1.0"))),
-            "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
+            "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
             "stream": self.config.stream
         }
+        
+        # Add stream_options to get token usage in streaming mode (OpenAI-compatible servers)
+        if self.config.stream:
+            payload["stream_options"] = {"include_usage": True}
         
         self.logger.debug(f"OpenAI-compatible request - Model: {self.config.model}")
         

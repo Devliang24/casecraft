@@ -14,7 +14,7 @@ from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCase, TestCaseCollection, TestType
 from casecraft.models.usage import TokenUsage
-from casecraft.utils.logging import get_logger
+from casecraft.utils.logging import CaseCraftLogger
 
 
 class TestGeneratorError(Exception):
@@ -43,7 +43,7 @@ class TestCaseGenerator:
         self.llm_client = llm_client
         self.api_version = api_version
         self.headers_analyzer = HeadersAnalyzer()
-        self.logger = get_logger("test_generator")
+        self.logger = CaseCraftLogger("test_generator", show_timestamp=True, show_level=True)
         self._test_case_schema = self._get_test_case_schema()
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
@@ -178,17 +178,30 @@ class TestCaseGenerator:
         max_attempts = 3
         last_error = None
         total_tokens_used = 0
+        endpoint_id = endpoint.get_endpoint_id()
+        
+        # Log start of generation
+        self.logger.file_only(f"🔨 Preparing test generation for {endpoint_id}")
+        
+        # Analyze endpoint complexity
+        complexity = self._evaluate_endpoint_complexity(endpoint)
+        self.logger.file_only(f"Endpoint complexity: score={complexity['complexity_score']}, level={complexity['complexity_level']}", level="DEBUG")
         
         for attempt in range(max_attempts):
             try:
                 # Build prompt - use enhanced version for retries
                 if attempt > 0 and last_error:
-                    self.logger.info(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint.get_endpoint_id()}")
+                    self.logger.info(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint_id}")
                     prompt = self._build_prompt_with_retry_hints(endpoint, last_error, attempt)
                     system_prompt = self._get_system_prompt_with_retry_emphasis()
                 else:
+                    self.logger.file_only(f"Building prompt for {endpoint_id}", level="DEBUG")
                     prompt = self._build_prompt(endpoint)
                     system_prompt = self._get_system_prompt()
+                
+                # Log prompt info
+                prompt_tokens = len(prompt) // 4  # Rough estimate
+                self.logger.file_only(f"Prompt prepared: ~{prompt_tokens} tokens", level="DEBUG")
                 
                 # Generate with streaming support
                 # Check if streaming is enabled (handle both provider and legacy config modes)
@@ -199,7 +212,7 @@ class TestCaseGenerator:
                     is_streaming = getattr(self.llm_client.config, 'stream', False)
                 
                 if is_streaming and attempt == 0:  # Only show streaming on first attempt
-                    self.logger.info(f"Using streaming mode for {endpoint.get_endpoint_id()}")
+                    self.logger.file_only(f"Using streaming mode for {endpoint.get_endpoint_id()}")
                 
                 response = await self.llm_client.generate(
                     prompt=prompt,
@@ -208,8 +221,10 @@ class TestCaseGenerator:
                 )
                 
                 # Track token usage across retries
+                self.logger.file_only(f"LLM response.usage: {response.usage}", level="DEBUG")
                 if response.usage:
                     total_tokens_used += response.usage.get("total_tokens", 0)
+                    self.logger.file_only(f"Added tokens, total now: {total_tokens_used}", level="DEBUG")
                 
                 # Validate response format early
                 self._validate_response_format(response.content)
@@ -239,19 +254,30 @@ class TestCaseGenerator:
                 
                 # Extract token usage from LLM response (use total from all attempts)
                 token_usage = None
+                self.logger.file_only(f"Response usage: {response.usage}, total_tokens_used: {total_tokens_used}", level="DEBUG")
                 if response.usage or total_tokens_used > 0:
                     token_usage = TokenUsage(
                         prompt_tokens=response.usage.get("prompt_tokens", 0) if response.usage else 0,
                         completion_tokens=response.usage.get("completion_tokens", 0) if response.usage else 0,
-                        total_tokens=total_tokens_used if total_tokens_used > 0 else response.usage.get("total_tokens", 0),
+                        total_tokens=total_tokens_used if total_tokens_used > 0 else response.usage.get("total_tokens", 0) if response.usage else 0,
                         model=response.model,
                         endpoint_id=endpoint.get_endpoint_id(),
                         retry_count=attempt  # Record actual attempts made
                     )
+                    self.logger.file_only(f"Created TokenUsage: {token_usage}")
                 
-                # Success! Log if we needed retries
+                # Success! Log generation details
+                test_count = len(collection.test_cases)
+                positive_count = sum(1 for tc in collection.test_cases if tc.test_type == "positive")
+                negative_count = sum(1 for tc in collection.test_cases if tc.test_type == "negative")
+                boundary_count = sum(1 for tc in collection.test_cases if tc.test_type == "boundary")
+                
                 if attempt > 0:
-                    self.logger.info(f"Successfully generated test cases on attempt {attempt + 1} for {endpoint.get_endpoint_id()}")
+                    self.logger.file_only(f"✨ Successfully generated {test_count} test cases on attempt {attempt + 1} for {endpoint_id}")
+                else:
+                    self.logger.file_only(f"✨ Successfully generated {test_count} test cases for {endpoint_id}")
+                
+                self.logger.file_only(f"Test case breakdown: {positive_count} positive, {negative_count} negative, {boundary_count} boundary", level="DEBUG")
                 
                 return GenerationResult(
                     test_cases=collection,
@@ -684,9 +710,13 @@ Return the test cases as a JSON array:"""
         Raises:
             TestGeneratorError: If response is invalid
         """
+        self.logger.file_only(f"🔄 Parsing LLM response ({len(response_content):,} characters)")
+        self.logger.file_only("Extracting test cases from JSON structure", level="DEBUG")
+        
         # Parse JSON response directly
         try:
             test_data = json.loads(response_content)
+            self.logger.file_only(f"Successfully parsed JSON, type: {type(test_data).__name__}", level="DEBUG")
         except json.JSONDecodeError as e:
             # Log the problematic content for debugging
             self.logger.error(f"Failed to parse JSON: {str(e)[:100]}")

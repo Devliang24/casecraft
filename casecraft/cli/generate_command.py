@@ -167,8 +167,8 @@ async def _load_configuration(
     cli_overrides = {}
     if output != "test_cases":  # Not default
         cli_overrides["output.directory"] = output
-    if workers != 4:  # Not default
-        cli_overrides["processing.workers"] = workers
+    # Workers is always from CLI (required argument)
+    cli_overrides["processing.workers"] = workers
     if force:
         cli_overrides["processing.force_regenerate"] = force
     if dry_run:
@@ -476,7 +476,7 @@ async def _run_single_provider(
     
     # 2. Get provider configuration
     try:
-        provider_config_dict = config_manager.get_provider_config(provider)
+        provider_config_dict = config_manager.get_provider_config(provider, workers=workers)
         
         # Override model if specified via CLI
         if model:
@@ -501,6 +501,15 @@ async def _run_single_provider(
     except Exception as e:
         console.print(f"[red]Provider Error:[/red] Failed to initialize {provider}: {e}")
         raise click.ClickException(str(e))
+    
+    # 5.5. Validate worker count against provider's max_workers limit
+    max_workers = provider_instance.get_max_workers()
+    if workers > max_workers:
+        console.print(f"[yellow]⚠️  友好提示：[/yellow]")
+        console.print(f"[yellow]   {provider.upper()} 提供商最大支持 {max_workers} 个并发工作进程[/yellow]")
+        console.print(f"[yellow]   当前设置: --workers {workers}[/yellow]")
+        console.print(f"[yellow]   请使用: --workers {max_workers} 或更少[/yellow]")
+        raise click.ClickException(f"{provider.upper()} 最大并发数为 {max_workers}")
     
     # 6. Create base configuration (for Engine's other components)
     base_config = config_manager.create_default_config()
@@ -537,6 +546,30 @@ async def _run_single_provider(
     # 11. Load state (if not dry run)
     if not dry_run:
         await state_manager.load_state()
+    
+    # 11.5 Pre-check endpoints count and validate workers
+    # First do a quick parse to count endpoints
+    from casecraft.core.parsing.api_parser import APIParser
+    api_parser = APIParser(timeout=30)
+    api_spec = await api_parser.parse_from_source(source)
+    
+    # Apply filters to get actual endpoint count
+    if include_tags or exclude_tags or include_paths:
+        api_spec = api_parser.filter_endpoints(
+            api_spec, 
+            list(include_tag) if include_tag else None,
+            list(exclude_tag) if exclude_tag else None, 
+            list(include_path) if include_path else None,
+            None
+        )
+    
+    # Check if only 1 endpoint and workers > 1
+    if len(api_spec.endpoints) == 1 and workers > 1:
+        console.print(f"[yellow]⚠️  友好提示：[/yellow]")
+        console.print(f"[yellow]   当只处理单个端点时，workers 必须设置为 1[/yellow]")
+        console.print(f"[yellow]   当前设置: --workers {workers}[/yellow]")
+        console.print(f"[yellow]   请使用: --workers 1[/yellow]")
+        raise click.ClickException("单个端点只能使用 --workers 1")
     
     # 12. Execute generation
     result = await engine.generate(
@@ -688,6 +721,9 @@ def _register_provider(provider_name: str) -> None:
     elif provider_lower == "local":
         from casecraft.core.providers.local_provider import LocalProvider
         ProviderRegistry.register("local", LocalProvider)
+    elif provider_lower == "deepseek":
+        from casecraft.core.providers.deepseek_provider import DeepSeekProvider
+        ProviderRegistry.register("deepseek", DeepSeekProvider)
 
 
 def _parse_provider_map(mapping_str: str) -> Dict[str, str]:
@@ -751,8 +787,8 @@ async def _load_single_provider_config(
     # Apply CLI overrides
     if output != "test_cases":
         base_config.output.directory = output
-    if workers != 1:
-        base_config.processing.workers = workers
+    # Workers is always from CLI (required argument)
+    base_config.processing.workers = workers
     base_config.processing.force_regenerate = force
     base_config.processing.dry_run = dry_run
     if organize_by:
@@ -819,6 +855,10 @@ def _show_provider_config(provider: str, config: ProviderConfig, verbose: bool) 
     stream_color = "green" if config.stream else "dim"
     table.add_row("📡", "Stream:", f"[{stream_color}]{config.stream}[/{stream_color}]")
     table.add_row("⚡", "Workers:", f"[yellow]{config.workers}[/yellow]")
+    
+    # Show max tokens configuration
+    max_tokens = int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))
+    table.add_row("📝", "Max Tokens:", f"[cyan]{max_tokens}[/cyan]")
     
     if verbose:
         # Detailed parameters

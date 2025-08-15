@@ -51,11 +51,12 @@ class MultiProviderConfigManager(ConfigManager):
         
         return config
     
-    def _parse_provider_configs(self, providers: List[str]) -> Dict[str, ProviderConfig]:
+    def _parse_provider_configs(self, providers: List[str], workers: Optional[int] = None) -> Dict[str, ProviderConfig]:
         """Parse configuration for each provider.
         
         Args:
             providers: List of provider names
+            workers: Number of workers from CLI (if provided)
             
         Returns:
             Dictionary of provider configurations
@@ -75,7 +76,7 @@ class MultiProviderConfigManager(ConfigManager):
                 max_retries=self._parse_int(f"CASECRAFT_{provider_upper}_MAX_RETRIES", 3),
                 temperature=self._parse_float(f"CASECRAFT_{provider_upper}_TEMPERATURE", 0.7),
                 stream=self._parse_bool(f"CASECRAFT_{provider_upper}_STREAM", False),
-                workers=self._parse_int(f"CASECRAFT_{provider_upper}_WORKERS", 1)
+                workers=workers if workers is not None else 1  # Use CLI value if provided, else default to 1
             )
             
             # Add any extra provider-specific settings

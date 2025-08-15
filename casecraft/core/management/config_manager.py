@@ -167,11 +167,12 @@ class ConfigManager:
         return overrides
     
     
-    def get_provider_config(self, provider_name: str) -> Dict[str, Any]:
+    def get_provider_config(self, provider_name: str, workers: Optional[int] = None) -> Dict[str, Any]:
         """Get configuration for a specific provider.
         
         Args:
             provider_name: Provider name (glm, kimi, qwen, etc.)
+            workers: Number of workers from CLI (required)
             
         Returns:
             Provider configuration dictionary
@@ -179,6 +180,9 @@ class ConfigManager:
         Raises:
             ConfigError: If required configuration is missing
         """
+        if workers is None:
+            raise ConfigError("Workers must be specified via --workers CLI argument")
+            
         provider_upper = provider_name.upper()
         
         # Read provider-specific configuration
@@ -197,8 +201,7 @@ class ConfigManager:
                                            os.getenv("CASECRAFT_LLM_TEMPERATURE", "0.7"))),
             'stream': os.getenv(f"CASECRAFT_{provider_upper}_STREAM",
                                os.getenv("CASECRAFT_LLM_STREAM", "true")).lower() == "true",
-            'workers': int(os.getenv(f"CASECRAFT_{provider_upper}_WORKERS",
-                                     os.getenv("CASECRAFT_PROCESSING_WORKERS", "1")))
+            'workers': workers  # Use CLI value directly
         }
         
         # Validate required configuration

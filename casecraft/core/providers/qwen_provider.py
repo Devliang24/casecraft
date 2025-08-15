@@ -89,9 +89,13 @@ class QwenProvider(LLMProvider):
                 "messages": messages,  # Direct messages, not nested in input
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
-                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "2000"))),
+                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
                 "stream": self.config.stream
             }
+            
+            # Add stream_options to get token usage in streaming mode
+            if self.config.stream:
+                payload["stream_options"] = {"include_usage": True}
             
             # Add structured output format if enabled
             if self.config.use_structured_output:
@@ -177,6 +181,7 @@ class QwenProvider(LLMProvider):
             except Exception as e:
                 self.logger.warning(f"Progress callback error: {e}")
         
+        self.logger.info(f"Qwen returning token_usage: {token_usage}")
         return LLMResponse(
             content=content,
             provider=self.name,
@@ -270,6 +275,7 @@ class QwenProvider(LLMProvider):
                                         total_tokens=usage_data.get("total_tokens", 0),
                                         model=self.config.model
                                     )
+                                    self.logger.info(f"Found token usage in stream: {token_usage}")
                             
                             # Get request ID - safely
                             if isinstance(data, dict) and "id" in data:
@@ -289,6 +295,7 @@ class QwenProvider(LLMProvider):
                     except Exception as cb_err:
                         self.logger.warning(f"Final progress callback error: {cb_err}")
                 
+                self.logger.info(f"Qwen streaming returning token_usage: {token_usage}")
                 return LLMResponse(
                     content="".join(content_chunks),
                     provider=self.name,

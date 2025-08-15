@@ -1,10 +1,13 @@
 """Structured logging utilities for CaseCraft."""
 
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+import logging
+from logging.handlers import RotatingFileHandler
 
 import structlog
 from rich.console import Console
@@ -98,6 +101,49 @@ def configure_logging(
     if log_file:
         file_path = Path(log_file)
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Get rotation settings from environment
+        max_bytes = int(os.getenv("CASECRAFT_LOG_MAX_SIZE", str(10 * 1024 * 1024)))  # 10MB default
+        backup_count = int(os.getenv("CASECRAFT_LOG_BACKUP_COUNT", "5"))
+        
+        # Create file handler with rotation
+        file_handler = RotatingFileHandler(
+            str(file_path),
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
+        
+        # Set formatter for file handler
+        file_formatter = logging.Formatter(
+            '[%(asctime)s] [%(levelname)-8s] [%(name)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(file_formatter)
+        file_handler.setLevel(level)
+        
+        # Add handler to root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+        root_logger.addHandler(file_handler)
+        
+        # Also configure structlog to output to the file
+        if structured:
+            # For structured JSON logs in file
+            file_processors = [
+                structlog.contextvars.merge_contextvars,
+                structlog.processors.add_log_level,
+                structlog.processors.TimeStamper(fmt="ISO"),
+                structlog.processors.JSONRenderer()
+            ]
+        else:
+            # For human-readable logs in file
+            file_processors = [
+                structlog.contextvars.merge_contextvars,
+                structlog.processors.add_log_level,
+                structlog.processors.TimeStamper(fmt="ISO"),
+                structlog.dev.ConsoleRenderer(colors=False)  # No colors in file
+            ]
 
 
 def get_logger(name: str = "casecraft") -> structlog.BoundLogger:
@@ -115,13 +161,18 @@ def get_logger(name: str = "casecraft") -> structlog.BoundLogger:
 class CaseCraftLogger:
     """Enhanced logger with CaseCraft-specific functionality."""
     
+    # Class-level file handler to share across instances
+    _file_handler: Optional[logging.Handler] = None
+    _file_logger: Optional[logging.Logger] = None
+    
     def __init__(
         self,
         name: str = "casecraft",
         console: Optional[Console] = None,
         verbose: bool = False,
         show_timestamp: bool = True,
-        show_level: bool = True
+        show_level: bool = True,
+        log_file: Optional[Union[str, Path]] = None
     ):
         """Initialize CaseCraft logger.
         
@@ -131,6 +182,7 @@ class CaseCraftLogger:
             verbose: Enable verbose output
             show_timestamp: Show timestamp in console output
             show_level: Show log level in console output
+            log_file: Optional log file path
         """
         self.name = name
         self.logger = get_logger(name)
@@ -139,6 +191,19 @@ class CaseCraftLogger:
         self.show_timestamp = show_timestamp
         self.show_level = show_level
         self._context: Dict[str, Any] = {}
+        
+        # Set up file logging if specified and not already configured
+        if log_file and not CaseCraftLogger._file_handler:
+            self._setup_file_logging(log_file)
+        
+        # Get or create file logger for this instance
+        if CaseCraftLogger._file_handler:
+            self.file_logger = logging.getLogger(f"casecraft.{name}")
+            self.file_logger.setLevel(logging.DEBUG)
+            if CaseCraftLogger._file_handler not in self.file_logger.handlers:
+                self.file_logger.addHandler(CaseCraftLogger._file_handler)
+        else:
+            self.file_logger = None
         
         # Define level colors and labels
         self.level_styles = {
@@ -149,6 +214,50 @@ class CaseCraftLogger:
             "ERROR": ("red", "[ERROR]"),
             "PROGRESS": ("blue", "[PROGRESS]")
         }
+    
+    @classmethod
+    def _setup_file_logging(cls, log_file: Union[str, Path]) -> None:
+        """Set up class-level file logging.
+        
+        Args:
+            log_file: Path to log file
+        """
+        file_path = Path(log_file)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Get rotation settings from environment
+        max_bytes = int(os.getenv("CASECRAFT_LOG_MAX_SIZE", str(10 * 1024 * 1024)))  # 10MB default
+        backup_count = int(os.getenv("CASECRAFT_LOG_BACKUP_COUNT", "5"))
+        
+        # Create file handler with rotation
+        cls._file_handler = RotatingFileHandler(
+            str(file_path),
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
+        
+        # Set formatter for file handler
+        file_formatter = logging.Formatter(
+            '[%(asctime)s] [%(levelname)-8s] [%(name)s] %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        cls._file_handler.setFormatter(file_formatter)
+        cls._file_handler.setLevel(logging.DEBUG)  # Capture all levels in file
+    
+    @classmethod
+    def set_global_log_file(cls, log_file: Optional[Union[str, Path]]) -> None:
+        """Set global log file for all CaseCraftLogger instances.
+        
+        This should be called once at application startup.
+        
+        Args:
+            log_file: Path to log file, or None to disable file logging
+        """
+        if log_file:
+            cls._setup_file_logging(log_file)
+        else:
+            cls._file_handler = None
     
     def _format_message(self, message: str, level: str = "INFO") -> str:
         """Format message with timestamp and level.
@@ -192,10 +301,12 @@ class CaseCraftLogger:
             console=self.console,
             verbose=self.verbose,
             show_timestamp=self.show_timestamp,
-            show_level=self.show_level
+            show_level=self.show_level,
+            log_file=None  # Don't reinitialize file logging
         )
         new_logger.logger = self.logger.bind(**kwargs)
         new_logger._context = {**self._context, **kwargs}
+        new_logger.file_logger = self.file_logger  # Share file logger
         return new_logger
     
     def debug(self, message: str, **kwargs) -> None:
@@ -204,24 +315,40 @@ class CaseCraftLogger:
             formatted = self._format_message(message, "DEBUG")
             self.console.print(formatted)
         self.logger.debug(message, **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.debug(message, extra={**self._context, **kwargs})
     
     def info(self, message: str, **kwargs) -> None:
         """Log info message."""
         formatted = self._format_message(message, "INFO")
         self.console.print(formatted)
         self.logger.info(message, **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.info(message, extra={**self._context, **kwargs})
     
     def warning(self, message: str, **kwargs) -> None:
         """Log warning message."""
         formatted = self._format_message(message, "WARNING")
         self.console.print(formatted)
         self.logger.warning(message, **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.warning(message, extra={**self._context, **kwargs})
     
     def error(self, message: str, **kwargs) -> None:
         """Log error message."""
         formatted = self._format_message(message, "ERROR")
         self.console.print(formatted)
         self.logger.error(message, **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.error(message, extra={**self._context, **kwargs})
     
     def success(self, message: str, **kwargs) -> None:
         """Log success message."""
@@ -232,6 +359,10 @@ class CaseCraftLogger:
             formatted = self._format_message(message, "SUCCESS")
         self.console.print(formatted)
         self.logger.info(f"SUCCESS: {message}", **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.info(f"[SUCCESS] {message}", extra={**self._context, **kwargs})
     
     def progress(self, message: str, **kwargs) -> None:
         """Log progress message."""
@@ -242,6 +373,42 @@ class CaseCraftLogger:
             formatted = self._format_message(message, "PROGRESS")
         self.console.print(formatted)
         self.logger.info(f"PROGRESS: {message}", **kwargs)
+        
+        # Also log to file if configured
+        if self.file_logger:
+            self.file_logger.info(f"[PROGRESS] {message}", extra={**self._context, **kwargs})
+    
+    def file_only(self, message: str, level: str = "INFO", **kwargs) -> None:
+        """Log message only to file, not to console.
+        
+        This is useful for detailed logging that would clutter the terminal output.
+        
+        Args:
+            message: Log message
+            level: Log level (INFO, DEBUG, WARNING, ERROR)
+            **kwargs: Additional context
+        """
+        # Only log to file if configured
+        if self.file_logger:
+            level_upper = level.upper()
+            if level_upper == "DEBUG":
+                self.file_logger.debug(message, extra={**self._context, **kwargs})
+            elif level_upper == "WARNING":
+                self.file_logger.warning(message, extra={**self._context, **kwargs})
+            elif level_upper == "ERROR":
+                self.file_logger.error(message, extra={**self._context, **kwargs})
+            else:  # Default to INFO
+                self.file_logger.info(message, extra={**self._context, **kwargs})
+        
+        # Also log to structlog for internal tracking (but not console)
+        if level.upper() == "DEBUG":
+            self.logger.debug(message, **kwargs)
+        elif level.upper() == "WARNING":
+            self.logger.warning(message, **kwargs)
+        elif level.upper() == "ERROR":
+            self.logger.error(message, **kwargs)
+        else:
+            self.logger.info(message, **kwargs)
     
     def log_operation_start(self, operation: str, **context) -> "CaseCraftLogger":
         """Log operation start with context.

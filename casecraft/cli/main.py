@@ -1,5 +1,10 @@
 """Main CLI command group for CaseCraft."""
 
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
 import click
 from rich.console import Console
 
@@ -20,8 +25,19 @@ console = Console()
     is_flag=True,
     help="Quiet mode - only show warnings and errors"
 )
+@click.option(
+    "--log-file",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Path to log file (default: logs/casecraft_TIMESTAMP.log)"
+)
+@click.option(
+    "--log-dir",
+    type=click.Path(file_okay=False, writable=True),
+    default="logs",
+    help="Directory for log files (default: logs/)"
+)
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, quiet: bool, log_file: Optional[str], log_dir: str) -> None:
     """CaseCraft: Generate API test cases using multiple LLM providers.
     
     A CLI tool that parses API documentation (OpenAPI/Swagger) and uses
@@ -38,7 +54,7 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
         ctx.obj["quiet"] = False
     
     # Set up initial logging configuration
-    from casecraft.utils.logging import configure_logging
+    from casecraft.utils.logging import configure_logging, CaseCraftLogger
     
     if quiet:
         log_level = "WARNING"
@@ -47,8 +63,31 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
     else:
         log_level = "INFO"
     
-    # Configure logging with console output disabled (we use CaseCraftLogger for console)
-    configure_logging(log_level=log_level, console_output=False)
+    # Determine log file path
+    final_log_file = None
+    if log_file:
+        # Use specified log file
+        final_log_file = log_file
+    elif os.getenv("CASECRAFT_LOG_FILE"):
+        # Use environment variable
+        final_log_file = os.getenv("CASECRAFT_LOG_FILE")
+    elif os.getenv("CASECRAFT_LOG_ENABLED", "").lower() == "true":
+        # Auto-generate log file if logging is enabled
+        log_dir_path = Path(os.getenv("CASECRAFT_LOG_DIR", log_dir))
+        log_dir_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        final_log_file = log_dir_path / f"casecraft_{timestamp}.log"
+    
+    # Configure logging with file output
+    configure_logging(log_level=log_level, log_file=final_log_file, console_output=False)
+    
+    # Set global log file for CaseCraftLogger
+    if final_log_file:
+        CaseCraftLogger.set_global_log_file(final_log_file)
+        console.print(f"[dim]📝 Logging to: {final_log_file}[/dim]")
+    
+    # Store log file path in context for later use
+    ctx.obj["log_file"] = final_log_file
 
 
 @cli.command()
@@ -86,9 +125,9 @@ def init() -> None:
 )
 @click.option(
     "--workers", "-w",
-    default=1,
+    required=True,
     type=int,
-    help="Number of concurrent workers (provider-dependent)"
+    help="Number of concurrent workers (required, provider-dependent)"
 )
 @click.option(
     "--force",
@@ -127,6 +166,13 @@ def init() -> None:
     "--model", "-m",
     help="Specify model for the provider (e.g., glm-4-flash, qwen-plus)"
 )
+@click.option(
+    "--log-file",
+    is_flag=False,
+    flag_value="auto",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Path to log file, or just '--log-file' to auto-generate (casecraft_TIMESTAMP.log)"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -144,6 +190,7 @@ def generate(
     provider_map: str,
     strategy: str,
     model: str,
+    log_file: Optional[str],
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -170,9 +217,22 @@ def generate(
         casecraft generate ./api-docs.yaml --provider glm --include-tag users --force
     """
     from casecraft.cli.generate_command import run_generate_command
+    from casecraft.utils.logging import CaseCraftLogger
     
     verbose = ctx.obj.get("verbose", False)
     quiet = ctx.obj.get("quiet", False)
+    
+    # Handle log_file option
+    if log_file:
+        # If log_file is "auto", generate a filename with timestamp
+        if log_file == "auto":
+            log_dir = Path("logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_file = log_dir / f"casecraft_{timestamp}.log"
+        
+        CaseCraftLogger.set_global_log_file(log_file)
+        console.print(f"[dim]📝 Logging to: {log_file}[/dim]")
     
     run_generate_command(
         source=source,
