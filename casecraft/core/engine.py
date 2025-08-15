@@ -384,7 +384,7 @@ class GeneratorEngine:
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
             console=self.console,
-            transient=True  # Clear progress bar when done or on error
+            transient=False  # Keep progress bar visible after completion
         ) as progress:
             
             task = progress.add_task("🚀 生成测试用例中...", total=100)  # Use percentage
@@ -497,12 +497,17 @@ class GeneratorEngine:
             result.failed_endpoints.append(f"{endpoint_id}: {str(e)}")
             
             # Update progress on failure - based on actual success count
-            current_progress = int((result.generated_count / total_endpoints) * 100)
-            progress.update(
-                task_id,
-                completed=current_progress
-                # Don't update description on failure, keep original "🚀 生成测试用例中..."
-            )
+            if result.generated_count == 0:
+                # 完全失败时停止进度条，防止重绘
+                progress.stop()
+            else:
+                # 如果有部分成功，更新进度
+                current_progress = int((result.generated_count / total_endpoints) * 100)
+                progress.update(
+                    task_id,
+                    completed=current_progress
+                    # Don't update description on failure, keep original "🚀 生成测试用例中..."
+                )
             
             # Then show error messages
             self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
@@ -531,12 +536,17 @@ class GeneratorEngine:
             result.failed_endpoints.append(f"{endpoint_id}: Unexpected error: {str(e)}")
             
             # Update progress on failure - based on actual success count
-            current_progress = int((result.generated_count / total_endpoints) * 100)
-            progress.update(
-                task_id,
-                completed=current_progress
-                # Don't update description on failure, keep original "🚀 生成测试用例中..."
-            )
+            if result.generated_count == 0:
+                # 完全失败时停止进度条，防止重绘
+                progress.stop()
+            else:
+                # 如果有部分成功，更新进度
+                current_progress = int((result.generated_count / total_endpoints) * 100)
+                progress.update(
+                    task_id,
+                    completed=current_progress
+                    # Don't update description on failure, keep original "🚀 生成测试用例中..."
+                )
             
             # Then show error messages
             self.console.print(f"  [red]✗[/red] 意外错误 - {endpoint_id}")
