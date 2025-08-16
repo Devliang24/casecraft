@@ -475,10 +475,10 @@ class TestCaseGenerator:
                 required_count = match.group(1)
                 test_type = match.group(2)
                 actual_count = match.group(3)
-                error_hints.append(f"必须生成至少 {required_count} 个 {test_type} 类型的测试用例（当前只有 {actual_count} 个）")
+                error_hints.append(f"强烈建议生成 {required_count} 个或更多 {test_type} 类型的测试用例（当前只有 {actual_count} 个）以确保充分覆盖")
             else:
                 # Fallback generic hint
-                error_hints.append("需要生成更多测试用例以满足覆盖要求")
+                error_hints.append("建议生成推荐数量的测试用例以确保全面测试覆盖")
             
             # Also get the complexity requirements for this endpoint
             complexity = self._evaluate_endpoint_complexity(endpoint)
@@ -503,7 +503,7 @@ class TestCaseGenerator:
 **特别注意事项:**
 {chr(10).join(f"• {hint}" for hint in error_hints)}
 
-**正确的返回格式示例（最少需要 {min_positive} 个正向 + {min_negative} 个负向测试）:**
+**推荐的返回格式示例（建议生成 {min_positive} 个正向 + {min_negative} 个负向测试，全面覆盖更重要）:**
 ```json
 [
   {{
@@ -554,7 +554,7 @@ class TestCaseGenerator:
 ```
 
 请严格按照上述格式生成测试用例，确保返回JSON数组。
-⚠️ 重要：必须生成足够数量的测试用例，特别是 {min_negative} 个或更多负向测试用例！
+💡 **建议**：推荐生成充分的测试用例（{min_positive}+ 正向，{min_negative}+ 负向）以确保全面测试覆盖。质量和数量同样重要！
 """
         
         return base_prompt + retry_hint
@@ -568,26 +568,31 @@ class TestCaseGenerator:
 2. 每个测试用例都必须包含所有必需字段（test_id, name, description, method, path, status, test_type）
 3. 不要只返回headers或其他部分内容，必须返回完整的测试用例对象
 4. 严格遵守JSON语法，确保可以被正确解析
-5. 必须生成足够数量的测试用例来满足覆盖要求：
-   - simple端点：至少2个positive + 2个negative
-   - medium端点：至少2个positive + 3个negative  
-   - complex端点：至少3个positive + 4个negative
-6. 每个测试用例必须有明确的测试目的，避免重复
+5. 推荐生成充分数量的测试用例来确保全面覆盖：
+   - simple端点：建议3个positive + 3个negative（最少2个positive + 2个negative）
+   - medium端点：建议4个positive + 4个negative（最少3个positive + 3个negative） 
+   - complex端点：建议5个positive + 5个negative（最少4个positive + 4个negative）
+6. 每个测试用例必须有明确的测试目的，覆盖不同场景
+7. 全面的测试覆盖比节省token更重要
 
-根据提供的API规范和复杂度要求生成测试用例。特别注意生成足够数量的负向测试用例！"""
+根据提供的API规范和复杂度要求生成测试用例。请生成推荐数量的测试用例，确保全面覆盖各种正向和负向场景！"""
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
         return """你是一个API用例设计测试专家。根据提供的API规范和复杂度要求生成测试用例。
 
 生成原则：
-1. 根据接口复杂度生成适量的测试用例，避免冗余
+1. 根据接口复杂度生成充分的测试用例，确保全面覆盖
 2. 每个测试用例都应该有明确的测试目的和价值
-3. 优先覆盖关键场景，不要为了凑数而生成无意义的用例
-4. **必须满足最低数量要求**：
-   - simple端点：至少2个positive + 2个negative
-   - medium端点：至少2个positive + 3个negative
-   - complex端点：至少3个positive + 4个negative
+3. 全面覆盖各种场景，测试质量和覆盖率同样重要
+4. **强烈推荐生成充分的测试用例**：
+   - simple端点：推荐3个positive + 4个negative + 1个boundary（共8个）
+   - medium端点：推荐4个positive + 5个negative + 3个boundary（共12个）
+   - complex端点：推荐5个positive + 6个negative + 4个boundary（共15个）
+5. **重要理念**：
+   - 宁可多测试，不可少覆盖
+   - 充分的测试用例是高质量软件的基础
+   - 每个测试用例都应探索不同的场景和边界条件
 
 测试用例要求：
 - 每个测试用例必须有test_id（从1开始的递增编号）
@@ -596,7 +601,11 @@ class TestCaseGenerator:
 - 测试数据要真实且简短
 - 确保测试用例具有实际意义，避免重复或无效的测试
 
-质量优于数量：宁可生成少一些高质量的测试用例，也不要生成大量重复或无意义的用例。
+质量与数量并重：
+- 生成高质量的测试用例，同时确保充分的数量
+- 全面的测试比节省token更重要
+- 目标是达到推荐数量，而不是最低要求
+- 多样化的测试场景能发现更多潜在问题
 
 Headers设置智能规则：
 1. 基于HTTP方法的Headers：
@@ -704,13 +713,13 @@ Headers设置智能规则：
 **接口复杂度分析:**
 - 复杂度级别: {complexity['complexity_level']}
 - 影响因素: {', '.join(complexity['factors']) if complexity['factors'] else '基础接口'}
-- 建议生成数量:
-  - 总计: {complexity['recommended_counts']['total'][0]}-{complexity['recommended_counts']['total'][1]}个测试用例
-  - 正向测试: **最少{complexity['recommended_counts']['positive'][0]}个** (建议{complexity['recommended_counts']['positive'][1]}个)
-  - 负向测试: **最少{complexity['recommended_counts']['negative'][0]}个** (建议{complexity['recommended_counts']['negative'][1]}个)
-  - 边界测试: {complexity['recommended_counts']['boundary'][0]}-{complexity['recommended_counts']['boundary'][1]}个
+- 推荐生成数量:
+  - 总计: 建议生成{complexity['recommended_counts']['total'][1]}个测试用例（最少{complexity['recommended_counts']['total'][0]}个）
+  - 正向测试: **建议{complexity['recommended_counts']['positive'][1]}个**（不少于{complexity['recommended_counts']['positive'][0]}个）
+  - 负向测试: **建议{complexity['recommended_counts']['negative'][1]}个**（不少于{complexity['recommended_counts']['negative'][0]}个）
+  - 边界测试: 建议{complexity['recommended_counts']['boundary'][1]}个（至少{complexity['recommended_counts']['boundary'][0]}个）
 
-⚠️ **强制要求**: 必须生成至少 {complexity['recommended_counts']['positive'][0]} 个正向测试和 {complexity['recommended_counts']['negative'][0]} 个负向测试，否则会导致生成失败！
+📌 **推荐要求**: 请生成推荐数量的测试用例以确保全面覆盖。全面的测试覆盖比节省token更重要！
 """
 
         # Build the prompt
@@ -743,7 +752,7 @@ Headers设置智能规则：
 请根据接口复杂度生成相应数量的高质量测试用例。每个用例都应该有明确的测试目的，避免重复或无意义的测试。
 
 ⚠️ **关键提醒**:
-1. 必须严格遵守最低数量要求（正向至少{complexity['recommended_counts']['positive'][0]}个，负向至少{complexity['recommended_counts']['negative'][0]}个）
+1. **强烈建议**生成推荐数量的测试用例（正向{complexity['recommended_counts']['positive'][1]}个，负向{complexity['recommended_counts']['negative'][1]}个）
 2. 每个测试用例必须包含所有必需字段
 3. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
 4. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
@@ -920,33 +929,34 @@ Return the test cases as a JSON array:"""
         boundary_count = sum(1 for tc in test_cases if tc.test_type == TestType.BOUNDARY)
         total_count = len(test_cases)
         
-        # Get minimum requirements based on complexity
-        min_positive = complexity['recommended_counts']['positive'][0]
-        min_negative = complexity['recommended_counts']['negative'][0]
-        min_total = complexity['recommended_counts']['total'][0]
+        # Get adjusted minimum requirements (80% of base minimum for flexibility)
+        min_positive = max(1, int(complexity['recommended_counts']['positive'][0] * 0.8))
+        min_negative = max(2, int(complexity['recommended_counts']['negative'][0] * 0.8))  # At least 2 negative
+        min_total = max(4, int(complexity['recommended_counts']['total'][0] * 0.8))  # At least 4 total
         
-        # Check minimum requirements
+        # Check minimum requirements with more lenient enforcement
         if positive_count < min_positive:
             raise TestGeneratorError(
-                f"At least {min_positive} positive test cases are required for "
+                f"Recommended {complexity['recommended_counts']['positive'][1]} positive test cases for "
                 f"{complexity['complexity_level']} endpoint, got {positive_count}. "
-                f"Please generate {min_positive - positive_count} more positive test cases."
+                f"Minimum requirement: {min_positive}. Please generate {min_positive - positive_count} more."
             )
         
         if negative_count < min_negative:
             raise TestGeneratorError(
-                f"At least {min_negative} negative test cases are required for "
+                f"Recommended {complexity['recommended_counts']['negative'][1]} negative test cases for "
                 f"{complexity['complexity_level']} endpoint, got {negative_count}. "
-                f"Please generate {min_negative - negative_count} more negative test cases."
+                f"Minimum requirement: {min_negative}. Please generate {min_negative - negative_count} more."
             )
         
-        # Check total count
+        # Check total count with softer enforcement
         if total_count < min_total:
             raise TestGeneratorError(
-                f"At least {min_total} test cases are required for "
+                f"Recommended {complexity['recommended_counts']['total'][1]} test cases for "
                 f"{complexity['complexity_level']} endpoint, got {total_count}. "
-                f"Missing: {min_positive - positive_count} positive, "
-                f"{min_negative - negative_count} negative test cases."
+                f"Minimum requirement: {min_total}. "
+                f"Missing: {max(0, min_positive - positive_count)} positive, "
+                f"{max(0, min_negative - negative_count)} negative test cases."
             )
         
         # Log test case distribution with complexity info
@@ -1367,28 +1377,28 @@ Return the test cases as a JSON array:"""
         
         # Determine recommended test case counts based on complexity
         if complexity_score <= 5:
-            # Simple endpoint: 5-6 test cases
-            min_total = 5
-            max_total = 6
-            positive_range = (2, 2)
-            negative_range = (2, 3)
+            # Simple endpoint: 6-8 test cases (increased from 5-6)
+            min_total = 6
+            max_total = 8
+            positive_range = (2, 3)  # Encourage 3 instead of 2
+            negative_range = (3, 4)  # Encourage 4 instead of 2-3
             boundary_range = (1, 1)
             complexity_level = "simple"
         elif complexity_score <= 10:
-            # Medium complexity: 7-9 test cases
-            min_total = 7
-            max_total = 9
-            positive_range = (2, 3)
-            negative_range = (3, 4)
-            boundary_range = (1, 2)
+            # Medium complexity: 9-12 test cases (increased from 7-9)
+            min_total = 9
+            max_total = 12
+            positive_range = (3, 4)  # Encourage 4 instead of 2-3
+            negative_range = (4, 5)  # Encourage 5 instead of 3-4
+            boundary_range = (2, 3)  # Encourage 3 instead of 1-2
             complexity_level = "medium"
         else:
-            # Complex endpoint: 10-12 test cases
-            min_total = 10
-            max_total = 12
-            positive_range = (3, 4)
-            negative_range = (4, 5)
-            boundary_range = (2, 3)
+            # Complex endpoint: 12-15 test cases (increased from 10-12)
+            min_total = 12
+            max_total = 15
+            positive_range = (4, 5)  # Encourage 5 instead of 3-4
+            negative_range = (5, 6)  # Encourage 6 instead of 4-5
+            boundary_range = (3, 4)  # Encourage 4 instead of 2-3
             complexity_level = "complex"
         
         return {
