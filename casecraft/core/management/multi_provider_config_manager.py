@@ -6,7 +6,6 @@ import logging
 
 from casecraft.core.management.config_manager import ConfigManager, ConfigError
 from casecraft.models.provider_config import ProviderConfig, MultiProviderConfig
-from casecraft.core.providers.base import ProviderConfig as BaseProviderConfig
 
 
 class MultiProviderConfigManager(ConfigManager):
@@ -196,27 +195,3 @@ class MultiProviderConfigManager(ConfigManager):
                     "  CASECRAFT_PROVIDERS=glm,qwen\n"
                 )
     
-    def convert_to_base_config(self, provider_config: ProviderConfig) -> BaseProviderConfig:
-        """Convert pydantic config to base provider config.
-        
-        Args:
-            provider_config: Pydantic provider configuration
-            
-        Returns:
-            Base provider configuration
-        """
-        return BaseProviderConfig(
-            name=provider_config.name,
-            model=provider_config.model,
-            api_key=provider_config.api_key,
-            base_url=provider_config.base_url,
-            timeout=provider_config.timeout,
-            max_retries=provider_config.max_retries,
-            temperature=provider_config.temperature,
-            stream=provider_config.stream,
-            workers=provider_config.workers,
-            **provider_config.dict(exclude={
-                "name", "model", "api_key", "base_url",
-                "timeout", "max_retries", "temperature", "stream", "workers"
-            })
-        )

@@ -10,6 +10,7 @@ import logging
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
+from casecraft.models.provider_config import ProviderConfig
 from casecraft.core.providers.exceptions import (
     ProviderError, ProviderEmptyResponseError, ProviderInvalidFormatError,
     ProviderTimeoutError, ProviderAuthError, ProviderQuotaError, ProviderRateLimitError
@@ -44,49 +45,6 @@ class LLMResponse:
         self.metadata = metadata or {}
 
 
-class ProviderConfig:
-    """Configuration for a provider."""
-    
-    def __init__(
-        self,
-        name: str,
-        model: str,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        timeout: int = 60,
-        max_retries: int = 3,
-        temperature: float = 0.7,
-        stream: bool = True,
-        workers: int = 1,
-        use_structured_output: bool = True,
-        **kwargs
-    ):
-        """Initialize provider configuration.
-        
-        Args:
-            name: Provider name
-            model: Model name
-            api_key: API key
-            base_url: Base URL for API
-            timeout: Request timeout in seconds
-            max_retries: Maximum number of retries
-            temperature: Temperature for generation
-            stream: Whether to stream responses
-            workers: Maximum concurrent workers
-            use_structured_output: Use structured output format for JSON responses
-            **kwargs: Additional provider-specific options
-        """
-        self.name = name
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url
-        self.timeout = timeout
-        self.max_retries = max_retries
-        self.temperature = temperature
-        self.stream = stream
-        self.workers = workers
-        self.use_structured_output = use_structured_output
-        self.extra = kwargs
 
 
 class LLMProvider(ABC):

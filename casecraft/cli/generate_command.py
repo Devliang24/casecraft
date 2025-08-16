@@ -567,26 +567,27 @@ async def _run_single_provider(
     # 1. Initialize configuration manager (auto-loads .env)
     config_manager = ConfigManager(load_env=True)
     
-    # 2. Get provider configuration
+    # 2. Import ProviderConfig first
+    from casecraft.models.provider_config import ProviderConfig
+    from casecraft.core.providers.registry import ProviderRegistry
+    
+    # 3. Get provider configuration
     try:
-        provider_config_dict = config_manager.get_provider_config(provider, workers=workers)
+        provider_config = config_manager.get_provider_config(provider, workers=workers)
         
         # Override model if specified via CLI
         if model:
-            provider_config_dict['model'] = model
+            # Create a new config with the updated model
+            config_dict = provider_config.dict()
+            config_dict['model'] = model
+            provider_config = ProviderConfig(**config_dict)
             
     except ConfigError as e:
         console.print(f"[red]Configuration Error:[/red] {e}")
         raise click.ClickException(str(e))
     
-    # 3. Register provider class to Registry
+    # 4. Register provider class to Registry
     _register_provider(provider)
-    
-    # 4. Create provider configuration object
-    from casecraft.core.providers.base import ProviderConfig
-    from casecraft.core.providers.registry import ProviderRegistry
-    
-    provider_config = ProviderConfig(**provider_config_dict)
     
     # 5. Get provider instance
     try:

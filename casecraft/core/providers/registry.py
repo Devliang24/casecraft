@@ -3,7 +3,8 @@
 from typing import Dict, Type, List, Optional
 import logging
 
-from casecraft.core.providers.base import LLMProvider, ProviderConfig
+from casecraft.core.providers.base import LLMProvider
+from casecraft.models.provider_config import ProviderConfig
 from casecraft.core.providers.exceptions import ProviderNotFoundError, ProviderConfigError
 
 

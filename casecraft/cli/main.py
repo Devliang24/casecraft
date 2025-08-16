@@ -1,6 +1,7 @@
 """Main CLI command group for CaseCraft."""
 
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,63 @@ from rich.console import Console
 from casecraft import __version__
 
 console = Console()
+
+# 保存原始的 show 方法
+original_show = click.exceptions.UsageError.show
+
+def custom_show(self, file=None):
+    """自定义错误显示方法，提供更友好的错误提示"""
+    if file is None:
+        file = sys.stderr
+    
+    error_msg = self.format_message()
+    
+    # 检查是否是 --keep-days 缺少参数的错误
+    if "--keep-days" in error_msg and "requires an argument" in error_msg:
+        console.print("[red]❌ 错误：--keep-days 参数需要指定天数（1-365）[/red]\n")
+        console.print("📝 [bold]正确用法示例：[/bold]")
+        console.print("  • [green]casecraft cleanup --logs --keep-days 7[/green]   # 保留最近7天的日志")
+        console.print("  • [green]casecraft cleanup --logs --keep-days 30[/green]  # 保留最近30天的日志")
+        console.print("  • [green]casecraft cleanup --logs[/green]                 # 使用默认值（7天）")
+        console.print("\n💡 [yellow]提示：[/yellow]使用 [cyan]casecraft cleanup --help[/cyan] 查看完整帮助")
+    else:
+        # 其他错误使用原始方法
+        original_show(self, file)
+
+# 替换 show 方法
+click.exceptions.UsageError.show = custom_show
+
+
+def main():
+    """主程序入口，提供友好的错误处理"""
+    cli()
+
+
+
+class KeepDaysType(click.ParamType):
+    """自定义的保留天数参数类型"""
+    name = "keep_days"
+    
+    def convert(self, value, param, ctx):
+        if value is None:
+            return 7  # 默认值
+        
+        try:
+            days = int(value)
+            if days < 1 or days > 365:
+                raise ValueError()
+            return days
+        except (ValueError, TypeError):
+            # 使用 Click 的失败方法，但提供友好的错误消息
+            self.fail(
+                f"保留天数必须在 1-365 之间，当前值: {value}\n\n"
+                f"📝 正确用法示例：\n"
+                f"  • casecraft cleanup --logs --keep-days 7   # 保留最近7天的日志\n"
+                f"  • casecraft cleanup --logs --keep-days 30  # 保留最近30天的日志\n"
+                f"  • casecraft cleanup --logs                 # 使用默认值（7天）\n\n"
+                f"💡 提示：使用 casecraft cleanup --help 查看完整帮助",
+                param, ctx
+            )
 
 
 @click.group()
@@ -99,6 +157,111 @@ def init() -> None:
     """
     from casecraft.cli.init_command import init_command
     init_command()
+
+
+@cli.command()
+@click.option(
+    "--logs",
+    is_flag=True,
+    help="清理过期日志文件"
+)
+@click.option(
+    "--test-cases", 
+    is_flag=True,
+    help="清理重复的测试用例文件"
+)
+@click.option(
+    "--debug-files",
+    is_flag=True, 
+    help="清理调试文件"
+)
+@click.option(
+    "--all",
+    is_flag=True,
+    help="清理所有类型的文件"
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="预览模式，不实际删除文件"
+)
+@click.option(
+    "--keep-days",
+    type=KeepDaysType(),
+    default=7,
+    help="日志文件保留天数（1-365天，默认7天）"
+)
+@click.option(
+    "--summary",
+    is_flag=True,
+    help="显示可清理文件的摘要信息"
+)
+@click.pass_context  
+def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary):
+    """清理临时文件和过期数据.
+    
+    该命令可以清理以下类型的文件：
+    - 过期日志文件（可自定义保留天数）
+    - 重复的测试用例文件（带时间戳的副本）
+    - 调试响应文件
+    
+    📋 常用示例：
+    
+    \b
+    casecraft cleanup --summary                      # 查看可清理文件统计
+    casecraft cleanup --all --dry-run              # 预览所有清理操作
+    casecraft cleanup --logs --keep-days 3         # 清理3天前的日志
+    casecraft cleanup --test-cases                 # 清理重复测试文件
+    casecraft cleanup --all                        # 清理所有类型文件
+    
+    💡 提示：建议先使用 --dry-run 预览要删除的文件
+    """
+    from rich.console import Console
+    from casecraft.utils.file_cleanup import FileCleanupManager
+    from casecraft.cli.cleanup_command import _show_cleanup_summary, _show_results_summary
+    
+    console = Console()
+    cleanup_manager = FileCleanupManager(dry_run=dry_run)
+    
+    if dry_run:
+        console.print("[yellow]🔍 预览模式 - 不会实际删除文件[/yellow]")
+        console.print()
+    
+    if summary:
+        _show_cleanup_summary(cleanup_manager)
+        return
+    
+    # 如果没有指定任何选项，显示友好的帮助信息
+    if not any([logs, test_cases, debug_files, all]):
+        console.print("[yellow]⚠️  未指定清理类型[/yellow]\n")
+        console.print("📋 可用选项：")
+        console.print("  • [cyan]casecraft cleanup --all[/cyan]          # 清理所有类型文件")
+        console.print("  • [cyan]casecraft cleanup --logs[/cyan]         # 清理过期日志（保留7天）")  
+        console.print("  • [cyan]casecraft cleanup --test-cases[/cyan]   # 清理重复测试文件")
+        console.print("  • [cyan]casecraft cleanup --summary[/cyan]      # 查看可清理文件统计")
+        console.print("\n💡 [bold]常用示例：[/bold]")
+        console.print("  • [green]casecraft cleanup --logs --keep-days 3[/green]  # 清理3天前的日志")
+        console.print("  • [green]casecraft cleanup --all --dry-run[/green]       # 预览所有清理操作")
+        console.print("\n🔍 使用 [cyan]casecraft cleanup --help[/cyan] 查看完整帮助")
+        return
+    
+    results = {}
+    
+    # 执行清理操作
+    if all or logs:
+        console.print("[blue]🧹 清理日志文件...[/blue]")
+        results["logs"] = cleanup_manager.clean_logs(keep_days=keep_days)
+    
+    if all or test_cases:
+        console.print("[blue]🧹 清理测试用例文件...[/blue]")
+        results["test_cases"] = cleanup_manager.clean_test_cases()
+    
+    if all or debug_files:
+        console.print("[blue]🧹 清理调试文件...[/blue]")
+        results["debug_files"] = cleanup_manager.clean_debug_files()
+    
+    # 显示结果摘要
+    _show_results_summary(results, dry_run)
 
 
 @cli.command()

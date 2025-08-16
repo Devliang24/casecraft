@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from dotenv import load_dotenv
 
 from casecraft.models.config import CaseCraftConfig
+from casecraft.models.provider_config import ProviderConfig
 
 
 class ConfigError(Exception):
@@ -169,7 +170,7 @@ class ConfigManager:
         return overrides
     
     
-    def get_provider_config(self, provider_name: str, workers: Optional[int] = None) -> Dict[str, Any]:
+    def get_provider_config(self, provider_name: str, workers: Optional[int] = None) -> ProviderConfig:
         """Get configuration for a specific provider.
         
         Args:
@@ -177,7 +178,7 @@ class ConfigManager:
             workers: Number of workers from CLI (required)
             
         Returns:
-            Provider configuration dictionary
+            Provider configuration object
             
         Raises:
             ConfigError: If required configuration is missing
@@ -188,7 +189,7 @@ class ConfigManager:
         provider_upper = provider_name.upper()
         
         # Read provider-specific configuration
-        config = {
+        config_data = {
             'name': provider_name,
             'model': os.getenv(f"CASECRAFT_{provider_upper}_MODEL"),
             'api_key': os.getenv(f"CASECRAFT_{provider_upper}_API_KEY"),
@@ -203,23 +204,24 @@ class ConfigManager:
                                            os.getenv("CASECRAFT_LLM_TEMPERATURE", "0.7"))),
             'stream': os.getenv(f"CASECRAFT_{provider_upper}_STREAM",
                                os.getenv("CASECRAFT_LLM_STREAM", "true")).lower() == "true",
-            'workers': workers  # Use CLI value directly
+            'workers': workers,  # Use CLI value directly
+            'use_structured_output': True  # Default value
         }
         
         # Validate required configuration
-        if not config['api_key']:
+        if not config_data['api_key']:
             raise ConfigError(
                 f"API key not configured for {provider_name}. "
                 f"Please set CASECRAFT_{provider_upper}_API_KEY in .env file"
             )
         
-        if not config['model']:
+        if not config_data['model']:
             raise ConfigError(
                 f"Model not configured for {provider_name}. "
                 f"Please set CASECRAFT_{provider_upper}_MODEL in .env file"
             )
         
-        return config
+        return ProviderConfig(**config_data)
     
     def validate_config(self, config: CaseCraftConfig) -> None:
         """Validate configuration completeness.

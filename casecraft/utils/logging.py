@@ -19,7 +19,9 @@ def configure_logging(
     log_file: Optional[Union[str, Path]] = None,
     verbose: bool = False,
     structured: bool = True,
-    console_output: bool = False  # New parameter to control console output
+    console_output: bool = False,  # New parameter to control console output
+    max_file_size: int = 10 * 1024 * 1024,  # 10MB default
+    backup_count: int = 5  # Keep 5 backup files
 ) -> None:
     """Configure structured logging for CaseCraft.
     
@@ -29,6 +31,8 @@ def configure_logging(
         verbose: Enable verbose output
         structured: Use structured logging format
         console_output: Enable structlog console output (default: False to avoid duplication)
+        max_file_size: Maximum log file size in bytes before rotation
+        backup_count: Number of backup log files to keep
     """
     # Configure structlog processors
     processors = [
@@ -102,15 +106,15 @@ def configure_logging(
         file_path = Path(log_file)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Get rotation settings from environment
-        max_bytes = int(os.getenv("CASECRAFT_LOG_MAX_SIZE", str(10 * 1024 * 1024)))  # 10MB default
-        backup_count = int(os.getenv("CASECRAFT_LOG_BACKUP_COUNT", "5"))
+        # Get rotation settings from environment or parameters
+        max_bytes = int(os.getenv("CASECRAFT_LOG_MAX_SIZE", str(max_file_size)))
+        backup_count_env = int(os.getenv("CASECRAFT_LOG_BACKUP_COUNT", str(backup_count)))
         
         # Create file handler with rotation
         file_handler = RotatingFileHandler(
             str(file_path),
             maxBytes=max_bytes,
-            backupCount=backup_count,
+            backupCount=backup_count_env,
             encoding='utf-8'
         )
         

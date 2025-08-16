@@ -6,7 +6,8 @@ import os
 from typing import Any, Dict, Optional, Callable
 import httpx
 
-from casecraft.core.providers.base import LLMProvider, LLMResponse, ProviderConfig
+from casecraft.core.providers.base import LLMProvider, LLMResponse
+from casecraft.models.provider_config import ProviderConfig
 from casecraft.core.providers.exceptions import (
     ProviderGenerationError,
     ProviderRateLimitError,

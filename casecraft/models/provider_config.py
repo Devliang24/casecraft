@@ -11,11 +11,12 @@ class ProviderConfig(BaseModel):
     model: str = Field(..., description="Model name")
     api_key: Optional[str] = Field(None, description="API key for authentication")
     base_url: Optional[str] = Field(None, description="Base URL for API")
-    timeout: int = Field(60, description="Request timeout in seconds")
+    timeout: int = Field(120, description="Request timeout in seconds")
     max_retries: int = Field(3, description="Maximum number of retries")
     temperature: float = Field(0.7, description="Temperature for generation")
-    stream: bool = Field(False, description="Whether to stream responses")
+    stream: bool = Field(True, description="Whether to stream responses")
     workers: int = Field(1, description="Maximum concurrent workers")
+    use_structured_output: bool = Field(True, description="Use structured output format for JSON responses")
     
     class Config:
         extra = "allow"  # Allow additional provider-specific fields
