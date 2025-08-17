@@ -435,13 +435,13 @@ def _show_generation_results(result: GenerationResult) -> None:
     table.add_row("📊", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
     table.add_row("✅", "Generated:      ", f"[green bold]{result.generated_count}[/green bold]")
     table.add_row("📋", "Test Cases:     ", f"[cyan bold]{result.total_test_cases}[/cyan bold]")
-    table.add_row("⏭️", "Skipped:      ", f"[dim]{result.skipped_count}[/dim]")
+    table.add_row("⏭", "Skipped:        ", f"[dim]{result.skipped_count}[/dim]")
     
     if result.failed_count > 0:
         table.add_row("❌", "Failed:         ", f"[red]{result.failed_count}[/red]")
     
     # Format duration
-    table.add_row("⏱️", "Duration:     ", f"{result.duration:.1f}s")
+    table.add_row("⏱", "Duration:       ", f"{result.duration:.1f}s")
     
     # Add retry summary if there were retries
     retry_summary = result.get_retry_summary()
