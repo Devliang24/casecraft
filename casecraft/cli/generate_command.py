@@ -62,8 +62,20 @@ async def generate_command(
         provider_map: Manual provider mapping
         strategy: Provider assignment strategy
     """
+    # Load .env file early to ensure environment variables are available
+    from pathlib import Path
+    from dotenv import load_dotenv
+    env_file = Path.cwd() / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
+    
     # Check if multi-provider support is requested
-    if provider or providers or provider_map or os.getenv("CASECRAFT_PROVIDER") or os.getenv("CASECRAFT_PROVIDERS"):
+    # Default to GLM provider if no provider is specified but LLM model is configured
+    default_provider = None
+    if os.getenv("CASECRAFT_LLM_MODEL") and not provider and not providers:
+        default_provider = "glm"
+    
+    if provider or providers or provider_map or os.getenv("CASECRAFT_PROVIDER") or os.getenv("CASECRAFT_PROVIDERS") or default_provider:
         # Use multi-provider implementation
         return await _generate_with_providers(
             source=source,
@@ -77,7 +89,7 @@ async def generate_command(
             organize_by=organize_by,
             verbose=verbose,
             quiet=quiet,
-            provider=provider or os.getenv("CASECRAFT_PROVIDER"),
+            provider=provider or os.getenv("CASECRAFT_PROVIDER") or default_provider,
             providers=providers or os.getenv("CASECRAFT_PROVIDERS"),
             provider_map=provider_map,
             strategy=strategy,
@@ -578,7 +590,7 @@ async def _run_single_provider(
         # Override model if specified via CLI
         if model:
             # Create a new config with the updated model
-            config_dict = provider_config.dict()
+            config_dict = provider_config.model_dump()
             config_dict['model'] = model
             provider_config = ProviderConfig(**config_dict)
             

@@ -11,6 +11,8 @@ from pydantic import ValidationError as PydanticValidationError
 
 from casecraft.core.generation.llm_client import LLMClient, LLMError
 from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
+from casecraft.core.analysis import PathAnalyzer, SmartDescriptionGenerator, CriticalityAnalyzer
+from casecraft.core.analysis.constants import METHOD_BASE_COUNTS, COMPLEXITY_THRESHOLDS, TEST_TYPE_RATIOS, MIN_TEST_COUNTS, MAX_TEST_COUNTS
 from casecraft.models.api_spec import APIEndpoint
 from casecraft.models.test_case import TestCase, TestCaseCollection, TestType
 from casecraft.models.usage import TokenUsage
@@ -46,9 +48,14 @@ class TestCaseGenerator:
         self.headers_analyzer = HeadersAnalyzer()
         self.logger = CaseCraftLogger("test_generator", console=console, show_timestamp=True, show_level=True)
         self._test_case_schema = self._get_test_case_schema()
+        
+        # 初始化智能分析器
+        self.path_analyzer = PathAnalyzer()
+        self.description_generator = SmartDescriptionGenerator()
+        self.criticality_analyzer = CriticalityAnalyzer()
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
-        """Generate concise Chinese description for endpoint.
+        """Generate concise Chinese description for endpoint using smart inference.
         
         Args:
             endpoint: API endpoint
@@ -56,112 +63,8 @@ class TestCaseGenerator:
         Returns:
             Concise Chinese description
         """
-        # Common endpoint patterns to concise Chinese descriptions
-        path_lower = endpoint.path.lower()
-        method = endpoint.method.upper()
-        
-        # Authentication endpoints
-        if "/auth/register" in path_lower:
-            return "用户注册接口"
-        elif "/auth/login" in path_lower:
-            return "用户登录接口"
-        elif "/auth/logout" in path_lower:
-            return "用户登出接口"
-        elif "/auth/refresh" in path_lower:
-            return "刷新令牌接口"
-        
-        # User endpoints
-        elif "/users/me" in path_lower or "/user/profile" in path_lower:
-            if method == "GET":
-                return "获取当前用户信息"
-            elif method in ["PUT", "PATCH"]:
-                return "更新用户信息"
-            elif method == "DELETE":
-                return "删除用户账号"
-        elif "/users" in path_lower:
-            if method == "GET":
-                return "获取用户列表"
-            elif method == "POST":
-                return "创建用户"
-        
-        # Product endpoints
-        elif "/products" in path_lower or "/product" in path_lower:
-            if method == "GET":
-                if "{" in endpoint.path:  # Has path parameter
-                    return "获取产品详情"
-                else:
-                    return "获取产品列表"
-            elif method == "POST":
-                return "创建产品"
-            elif method == "PUT" or method == "PATCH":
-                return "更新产品信息"
-            elif method == "DELETE":
-                return "删除产品"
-        
-        # Cart endpoints
-        elif "/cart" in path_lower:
-            if "items" in path_lower:
-                if method == "POST":
-                    return "添加购物车项目"
-                elif method == "DELETE":
-                    return "移除购物车项目"
-                elif method == "PUT":
-                    return "更新购物车项目"
-            elif method == "GET":
-                return "获取购物车内容"
-            elif method == "DELETE":
-                return "清空购物车"
-        
-        # Order endpoints
-        elif "/orders" in path_lower or "/order" in path_lower:
-            if method == "GET":
-                if "{" in endpoint.path:
-                    return "获取订单详情"
-                else:
-                    return "获取订单列表"
-            elif method == "POST":
-                return "创建订单"
-            elif method == "PUT":
-                return "更新订单状态"
-            elif method == "DELETE":
-                return "取消订单"
-        
-        # Category endpoints
-        elif "/categories" in path_lower or "/category" in path_lower:
-            if method == "GET":
-                if "{" in endpoint.path:
-                    return "获取分类详情"
-                else:
-                    return "获取分类列表"
-            elif method == "POST":
-                return "创建分类"
-            elif method == "PUT":
-                return "更新分类"
-            elif method == "DELETE":
-                return "删除分类"
-        
-        # Health check
-        elif "/health" in path_lower:
-            return "健康检查接口"
-        
-        # Default: use summary if available, otherwise generate from method and path
-        if endpoint.summary:
-            # Try to keep it short
-            summary = endpoint.summary
-            if len(summary) > 20:
-                # Extract key action
-                if method == "GET":
-                    return f"获取{endpoint.path.split('/')[-1]}数据"
-                elif method == "POST":
-                    return f"创建{endpoint.path.split('/')[-1]}"
-                elif method == "PUT" or method == "PATCH":
-                    return f"更新{endpoint.path.split('/')[-1]}"
-                elif method == "DELETE":
-                    return f"删除{endpoint.path.split('/')[-1]}"
-            return summary
-        
-        # Final fallback
-        return f"{method} {endpoint.path} 接口"
+        # 使用智能描述生成器替代硬编码
+        return self.description_generator.generate(endpoint)
     
     async def generate_test_cases(self, endpoint: APIEndpoint, progress_callback: Optional[callable] = None) -> GenerationResult:
         """Generate test cases for an API endpoint with intelligent retry mechanism.
@@ -561,7 +464,7 @@ class TestCaseGenerator:
     
     def _get_system_prompt_with_retry_emphasis(self) -> str:
         """Get enhanced system prompt for retry attempts."""
-        return """你是一个API用例设计测试专家。
+        return """你是一个专业的API用例设计工程师。
 
 ⚠️ 重要提醒（重试时必须注意）：
 1. 必须返回JSON数组格式，即使只有一个测试用例也要用 [...] 包装
@@ -579,20 +482,62 @@ class TestCaseGenerator:
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for LLM."""
-        return """你是一个API用例设计测试专家。根据提供的API规范和复杂度要求生成测试用例。
+        return """你是一个专业的API用例设计工程师，负责设计全面、高质量的测试用例。
 
-生成原则：
-1. 根据接口复杂度生成充分的测试用例，确保全面覆盖
-2. 每个测试用例都应该有明确的测试目的和价值
-3. 全面覆盖各种场景，测试质量和覆盖率同样重要
-4. **强烈推荐生成充分的测试用例**：
-   - simple端点：推荐3个positive + 4个negative + 1个boundary（共8个）
-   - medium端点：推荐4个positive + 5个negative + 3个boundary（共12个）
-   - complex端点：推荐5个positive + 6个negative + 4个boundary（共15个）
-5. **重要理念**：
-   - 宁可多测试，不可少覆盖
-   - 充分的测试用例是高质量软件的基础
-   - 每个测试用例都应探索不同的场景和边界条件
+## 🎯 核心设计理念
+"完善的测试设计是高质量API的基石" - 请设计充分的测试用例以确保接口的可靠性。
+
+## 📊 测试数量指导原则
+
+根据HTTP方法的重要性和风险等级，设计相应数量的测试用例：
+
+### POST（创建操作）- 最重要
+**目标数量：16-25个测试用例**
+- 正向测试（35%）：6-9个
+- 负向测试（45%）：7-11个
+- 边界测试（20%）：3-5个
+创建操作影响数据完整性，需要最全面的测试。
+
+**POST必须包含的测试场景：**
+□ 认证授权测试（未认证401、无权限403、token过期401）
+□ 并发创建处理（同时创建相同资源、不同资源）
+□ 业务规则验证（库存不足、商品下架、超出限制）
+□ 唯一性约束（重复创建409、唯一字段冲突）
+□ 数据完整性（外键约束、引用验证）
+□ 事务处理（部分失败回滚、批量创建）
+□ 资源限制（配额限制、速率限制429）
+
+### DELETE（删除操作）- 第二重要
+**目标数量：15-22个测试用例**
+- 正向测试（25%）：4-6个
+- 负向测试（55%）：8-12个
+- 边界测试（20%）：3-4个
+删除操作不可逆，必须充分测试权限、存在性、级联影响。
+
+### PUT/PATCH（更新操作）
+**目标数量：14-20个测试用例**
+- 正向测试（35%）：5-7个
+- 负向测试（45%）：6-9个
+- 边界测试（20%）：3-4个
+
+### GET（查询操作）
+**目标数量：13-20个测试用例**
+- 正向测试（40%）：5-8个
+- 负向测试（40%）：5-8个
+- 边界测试（20%）：3-4个
+
+## 📝 DELETE操作特殊测试要求（重要）
+必须包含以下测试场景：
+□ 删除不存在的资源（404）
+□ 重复删除同一资源（404或409）
+□ 删除被引用的资源（409冲突）
+□ 级联删除验证（验证关联数据处理）
+□ 软删除vs硬删除（标记删除vs物理删除）
+□ 删除权限验证（401未认证，403无权限）
+□ 删除后的数据恢复（验证是否可恢复）
+□ 批量删除场景（删除多个资源）
+□ 并发删除处理（同时删除同一资源）
+□ 删除锁定的资源（423锁定）
 
 测试用例要求：
 - 每个测试用例必须有test_id（从1开始的递增编号）
@@ -608,10 +553,10 @@ class TestCaseGenerator:
 - 多样化的测试场景能发现更多潜在问题
 
 Headers设置智能规则：
-1. 基于HTTP方法的Headers：
-   - GET: 添加 "Accept": "application/json"
+1. 基于HTTP方法的Headers（重要：必须完整，不要截断）：
+   - GET: 添加 "Accept": "application/json" （完整的MIME类型）
    - POST/PUT/PATCH: 添加 "Content-Type": "application/json", "Accept": "application/json"
-   - DELETE: 添加 "Accept": "application/json"
+   - DELETE: 添加 "Accept": "application/json" （必须是完整的"application/json"）
 
 2. 基于认证要求的Headers：
    - Bearer Token认证: 添加 "Authorization": "Bearer ${AUTH_TOKEN}"
@@ -929,35 +874,26 @@ Return the test cases as a JSON array:"""
         boundary_count = sum(1 for tc in test_cases if tc.test_type == TestType.BOUNDARY)
         total_count = len(test_cases)
         
-        # Get adjusted minimum requirements (80% of base minimum for flexibility)
-        min_positive = max(1, int(complexity['recommended_counts']['positive'][0] * 0.8))
-        min_negative = max(2, int(complexity['recommended_counts']['negative'][0] * 0.8))  # At least 2 negative
-        min_total = max(4, int(complexity['recommended_counts']['total'][0] * 0.8))  # At least 4 total
+        # Use 60% of minimum requirements as soft requirements (more lenient)
+        min_positive = max(2, int(complexity['recommended_counts']['positive'][0] * 0.6))
+        min_negative = max(3, int(complexity['recommended_counts']['negative'][0] * 0.6))
+        min_total = max(8, int(complexity['recommended_counts']['total'][0] * 0.6))
         
-        # Check minimum requirements with more lenient enforcement
+        # Only error on severe deficiency
         if positive_count < min_positive:
-            raise TestGeneratorError(
-                f"Recommended {complexity['recommended_counts']['positive'][1]} positive test cases for "
-                f"{complexity['complexity_level']} endpoint, got {positive_count}. "
-                f"Minimum requirement: {min_positive}. Please generate {min_positive - positive_count} more."
-            )
+            self.logger.warning(f"Positive test cases below recommended: {positive_count} < {complexity['recommended_counts']['positive'][0]}")
+            if positive_count < 2:  # Only error if less than 2
+                raise TestGeneratorError(f"At least 2 positive test cases required, got {positive_count}")
         
         if negative_count < min_negative:
-            raise TestGeneratorError(
-                f"Recommended {complexity['recommended_counts']['negative'][1]} negative test cases for "
-                f"{complexity['complexity_level']} endpoint, got {negative_count}. "
-                f"Minimum requirement: {min_negative}. Please generate {min_negative - negative_count} more."
-            )
+            self.logger.warning(f"Negative test cases below recommended: {negative_count} < {complexity['recommended_counts']['negative'][0]}")
+            if negative_count < 2:  # Only error if less than 2
+                raise TestGeneratorError(f"At least 2 negative test cases required, got {negative_count}")
         
-        # Check total count with softer enforcement
         if total_count < min_total:
-            raise TestGeneratorError(
-                f"Recommended {complexity['recommended_counts']['total'][1]} test cases for "
-                f"{complexity['complexity_level']} endpoint, got {total_count}. "
-                f"Minimum requirement: {min_total}. "
-                f"Missing: {max(0, min_positive - positive_count)} positive, "
-                f"{max(0, min_negative - negative_count)} negative test cases."
-            )
+            self.logger.warning(f"Total test cases below recommended: {total_count} < {complexity['recommended_counts']['total'][0]}")
+            if total_count < 5:  # Only error if less than 5
+                raise TestGeneratorError(f"At least 5 test cases required, got {total_count}")
         
         # Log test case distribution with complexity info
         self.logger.file_only(f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary", level="INFO")
@@ -1299,32 +1235,52 @@ Return the test cases as a JSON array:"""
         """
         name_lower = test_case.name.lower()
         desc_lower = test_case.description.lower()
+        combined = name_lower + desc_lower
         
-        # Check for specific error types
-        if any(word in name_lower + desc_lower for word in ["missing", "required", "empty"]):
-            return 400  # Bad Request for missing required fields
+        # Priority order for status code inference
         
-        if any(word in name_lower + desc_lower for word in ["invalid type", "string instead", "format"]):
-            return 400  # Bad Request for type/format errors
-        
-        if any(word in name_lower + desc_lower for word in ["not found", "nonexistent", "doesn't exist"]):
-            return 404  # Not Found
-        
-        if any(word in name_lower + desc_lower for word in ["validation", "constraint", "range"]):
-            return 422  # Unprocessable Entity for validation errors
-        
-        if any(word in name_lower + desc_lower for word in ["unauthorized", "authentication"]):
+        # 1. Authentication errors - 401
+        if any(word in combined for word in ["未认证", "未授权", "unauthorized", "authentication", "无认证", "未登录"]):
             return 401  # Unauthorized
         
-        if any(word in name_lower + desc_lower for word in ["forbidden", "permission", "access"]):
+        # 2. Permission errors - 403  
+        if any(word in combined for word in ["权限", "forbidden", "permission", "access denied", "不允许"]):
             return 403  # Forbidden
         
-        # For path parameter errors, typically 404
-        if test_case.path_params and endpoint.path.count("{") > 0:
-            return 404
+        # 3. Validation errors - 422
+        if any(word in combined for word in ["验证", "validation", "constraint", "range", "格式错误", "类型错误"]):
+            return 422  # Unprocessable Entity
         
-        # Default to current status or 400
-        return test_case.status if test_case.status in [400, 404, 422] else 400
+        # 4. Missing required fields - 422 (not 400)
+        if any(word in combined for word in ["missing", "required", "缺少", "必填", "必需"]):
+            return 422  # Unprocessable Entity for missing required fields
+        
+        # 5. Invalid parameter type/format - 422
+        if any(word in combined for word in ["invalid type", "string instead", "format", "非数字", "非整数"]):
+            return 422  # Unprocessable Entity for type errors
+        
+        # 6. Resource not found - 404 (only for actual missing resources)
+        if any(word in combined for word in ["not found", "nonexistent", "doesn't exist", "不存在的商品", "找不到"]):
+            # But not for invalid IDs - those should be 422
+            if any(word in combined for word in ["invalid", "格式", "负数", "零值"]):
+                return 422
+            return 404  # Not Found
+        
+        # 7. Bad request - 400 (general client errors)
+        if any(word in combined for word in ["bad request", "malformed", "错误请求"]):
+            return 400
+        
+        # For DELETE operations with path params, prefer 422 for invalid IDs
+        if endpoint.method.upper() == "DELETE" and test_case.path_params:
+            # If it's about invalid ID format, use 422
+            if any(word in combined for word in ["invalid", "负数", "零值", "格式"]):
+                return 422
+            # If it's about non-existent resource, use 404
+            if any(word in combined for word in ["不存在", "not found"]):
+                return 404
+        
+        # Default to 422 for validation errors, 400 for others
+        return test_case.status if test_case.status in [400, 401, 403, 404, 422] else 422
     
     def _evaluate_endpoint_complexity(self, endpoint: APIEndpoint) -> Dict[str, Any]:
         """Evaluate the complexity of an API endpoint.
@@ -1338,78 +1294,208 @@ Return the test cases as a JSON array:"""
         complexity_score = 0
         factors = []
         
-        # 1. Parameter complexity
-        param_count = len(endpoint.parameters) if endpoint.parameters else 0
-        if param_count > 0:
-            complexity_score += param_count * 2
-            factors.append(f"{param_count} parameters")
+        # 1. Parameter complexity (adjusted weights)
+        if endpoint.parameters:
+            param_by_location = {"path": [], "query": [], "header": [], "cookie": []}
+            
+            for param in endpoint.parameters:
+                location = param.location if hasattr(param, 'location') else param.get("in", "query")
+                if location in param_by_location:
+                    param_by_location[location].append(param)
+            
+            # Path parameters: 2 points each (more important)
+            if param_by_location["path"]:
+                complexity_score += len(param_by_location["path"]) * 2
+                factors.append(f"{len(param_by_location['path'])} path params")
+            
+            # Query parameters: 1 point each (reduced from 2)
+            if param_by_location["query"]:
+                complexity_score += len(param_by_location["query"]) * 1
+                factors.append(f"{len(param_by_location['query'])} query params")
+            
+            # Header parameters: 1 point each
+            if param_by_location["header"]:
+                complexity_score += len(param_by_location["header"]) * 1
+                factors.append(f"{len(param_by_location['header'])} header params")
+            
+            # Cookie parameters: 0.5 points each
+            if param_by_location["cookie"]:
+                complexity_score += len(param_by_location["cookie"]) * 0.5
+                factors.append(f"{len(param_by_location['cookie'])} cookie params")
+            
+            # Required parameters get extra points
+            required_count = sum(1 for params in param_by_location.values() 
+                                for p in params if (hasattr(p, 'required') and p.required) 
+                                or p.get("required", False))
+            if required_count > 0:
+                complexity_score += required_count * 0.5
         
-        # 2. Request body complexity
+        # 2. Request body complexity (increased weights)
         if endpoint.request_body:
             body_complexity = self._evaluate_schema_complexity(endpoint.request_body)
-            complexity_score += body_complexity
-            if body_complexity > 5:
-                factors.append("complex request body")
-            elif body_complexity > 0:
+            
+            # Dynamic grading with higher weights
+            if body_complexity <= 3:
+                score = 6  # Increased from ~3
                 factors.append("simple request body")
+            elif body_complexity <= 7:
+                score = 10  # Increased from ~6
+                factors.append("medium request body")
+            elif body_complexity <= 15:
+                score = 14  # Increased from ~9
+                factors.append("complex request body")
+            else:
+                score = 18  # Very complex
+                factors.append("very complex request body")
+            
+            complexity_score += score
         
-        # 3. Operation type complexity
-        if endpoint.method in ["POST", "PUT", "PATCH"]:
-            complexity_score += 3
-            factors.append(f"{endpoint.method} operation")
-        elif endpoint.method == "DELETE":
-            complexity_score += 2
-            factors.append("DELETE operation")
+        # 3. Operation type complexity (DELETE gets highest weight)
+        method_upper = endpoint.method.upper()
         
-        # 4. Authentication requirements
-        has_auth = any(p.name.lower() in ["authorization", "api-key", "x-api-key"] 
-                      for p in (endpoint.parameters or []))
-        if has_auth:
-            complexity_score += 2
+        if method_upper == "DELETE":
+            complexity_score += 7  # DELETE gets highest weight (2nd most tests)
+            factors.append("DELETE operation (critical)")
+        elif method_upper == "POST":
+            complexity_score += 6  # POST is important
+            factors.append("POST operation")
+        elif method_upper in ["PUT", "PATCH"]:
+            complexity_score += 5  # Update operations
+            factors.append(f"{method_upper} operation")
+        elif method_upper in ["HEAD", "OPTIONS"]:
+            complexity_score += 1
+            factors.append(f"{method_upper} operation")
+        # GET gets 0 points
+        
+        # 4. Authentication requirements (enhanced detection)
+        if self._requires_authentication(endpoint):
+            complexity_score += 3  # Increased from 2
             factors.append("authentication required")
         
-        # 5. Response complexity
+        # 5. Business criticality assessment
+        business_score = self._evaluate_business_criticality(endpoint)
+        if business_score > 0:
+            complexity_score += business_score
+            factors.append(f"business criticality (+{business_score})")
+        
+        # 6. Response complexity
         if endpoint.responses:
             response_count = len(endpoint.responses)
-            if response_count > 3:
+            if response_count > 5:
+                complexity_score += 3
+                factors.append(f"{response_count} response scenarios")
+            elif response_count > 3:
                 complexity_score += 2
-                factors.append(f"{response_count} response types")
+                factors.append("multiple response types")
+            elif response_count > 1:
+                complexity_score += 1
         
-        # Determine recommended test case counts based on complexity
-        if complexity_score <= 5:
-            # Simple endpoint: 6-8 test cases (increased from 5-6)
-            min_total = 6
-            max_total = 8
-            positive_range = (2, 3)  # Encourage 3 instead of 2
-            negative_range = (3, 4)  # Encourage 4 instead of 2-3
-            boundary_range = (1, 1)
-            complexity_level = "simple"
-        elif complexity_score <= 10:
-            # Medium complexity: 9-12 test cases (increased from 7-9)
-            min_total = 9
-            max_total = 12
-            positive_range = (3, 4)  # Encourage 4 instead of 2-3
-            negative_range = (4, 5)  # Encourage 5 instead of 3-4
-            boundary_range = (2, 3)  # Encourage 3 instead of 1-2
-            complexity_level = "medium"
+        # 7. Data consistency requirements
+        if method_upper in ["PUT", "PATCH", "DELETE"]:
+            complexity_score += 1
+            factors.append("data consistency check")
+        
+        # Calculate test counts using new enhanced logic
+        return self._calculate_test_counts(complexity_score, method_upper, factors)
+    
+    def _requires_authentication(self, endpoint: APIEndpoint) -> bool:
+        """
+        Generic authentication requirement detection.
+        Does not rely on specific implementations.
+        """
+        # 1. Check endpoint security field
+        if hasattr(endpoint, 'security') and endpoint.security:
+            return True
+        
+        # 2. Check for authentication-related parameters
+        if endpoint.parameters:
+            # Generic authentication parameter patterns
+            auth_patterns = [
+                "auth", "token", "key", "credential", "session",
+                "jwt", "bearer", "oauth", "apikey", "api-key",
+                "x-auth", "x-token", "x-api", "authorization"
+            ]
+            
+            for param in endpoint.parameters:
+                param_name = param.name if hasattr(param, 'name') else param.get("name", "")
+                param_lower = param_name.lower().replace("-", "").replace("_", "")
+                
+                if any(pattern in param_lower for pattern in auth_patterns):
+                    return True
+        
+        # 3. Check path for secured areas
+        path_lower = endpoint.path.lower()
+        secured_paths = ["admin", "private", "secure", "protected", "internal"]
+        if any(word in path_lower for word in secured_paths):
+            return True
+        
+        return False
+    
+    def _evaluate_business_criticality(self, endpoint: APIEndpoint) -> int:
+        """
+        Evaluate business criticality using smart analyzer.
+        Replaces hardcoded patterns with intelligent inference.
+        """
+        # 使用智能关键性分析器替代硬编码
+        return self.criticality_analyzer.analyze(endpoint)
+    
+    def _calculate_test_counts(self, complexity_score: int, method: str, factors: list) -> dict:
+        """
+        Calculate test counts based on complexity and method using constants.
+        Ensures DELETE gets 2nd most test cases.
+        """
+        
+        # 使用常量中的方法基准数量
+        base = METHOD_BASE_COUNTS.get(method.upper(), 12)
+        
+        # 根据复杂度等级确定multiplier
+        if complexity_score <= COMPLEXITY_THRESHOLDS['simple']:
+            multiplier = 0.8
+            level = "simple"
+        elif complexity_score <= COMPLEXITY_THRESHOLDS['medium']:
+            multiplier = 1.0
+            level = "medium"
         else:
-            # Complex endpoint: 12-15 test cases (increased from 10-12)
-            min_total = 12
-            max_total = 15
-            positive_range = (4, 5)  # Encourage 5 instead of 3-4
-            negative_range = (5, 6)  # Encourage 6 instead of 4-5
-            boundary_range = (3, 4)  # Encourage 4 instead of 2-3
-            complexity_level = "complex"
+            multiplier = 1.3
+            level = "complex"
+        
+        # 计算总数
+        total = int(base * multiplier)
+        
+        # 获取测试类型比例
+        ratios = TEST_TYPE_RATIOS[level]
+        
+        # 计算各类型数量
+        positive = max(MIN_TEST_COUNTS['positive'], int(total * ratios['positive']))
+        negative = max(MIN_TEST_COUNTS['negative'], int(total * ratios['negative']))
+        boundary = max(MIN_TEST_COUNTS['boundary'], int(total * ratios['boundary']))
+        
+        # 确保总数匹配
+        calculated_total = positive + negative + boundary
+        if calculated_total != total:
+            diff = total - calculated_total
+            if diff > 0:
+                # 增加负向测试数量
+                negative += diff
+            else:
+                # 减少负向测试数量
+                negative = max(MIN_TEST_COUNTS['negative'], negative + diff)
+        
+        # 应用最大值约束
+        positive = min(positive, MAX_TEST_COUNTS['positive'])
+        negative = min(negative, MAX_TEST_COUNTS['negative'])
+        boundary = min(boundary, MAX_TEST_COUNTS['boundary'])
+        total = min(positive + negative + boundary, MAX_TEST_COUNTS['total'])
         
         return {
             "complexity_score": complexity_score,
-            "complexity_level": complexity_level,
+            "complexity_level": level,
             "factors": factors,
             "recommended_counts": {
-                "total": (min_total, max_total),
-                "positive": positive_range,
-                "negative": negative_range,
-                "boundary": boundary_range
+                "total": (total, total),
+                "positive": (positive, positive),
+                "negative": (negative, negative),
+                "boundary": (boundary, boundary)
             }
         }
     

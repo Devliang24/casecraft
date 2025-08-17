@@ -413,6 +413,7 @@ class GeneratorEngine:
                 self._llm_client = LLMClient(provider=self.provider_instance)
             else:
                 # Provider instance is required
+                self.logger.error(f"Provider instance is None. self.provider_instance={self.provider_instance}")
                 raise GeneratorError("Provider instance is required")
                 
             self._test_generator = TestCaseGenerator(self._llm_client, api_version, console=self.console)

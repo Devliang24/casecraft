@@ -74,7 +74,7 @@ class ConfigManager:
         """
         # Start with default config from environment
         config = self.create_default_config()
-        config_dict = config.dict()
+        config_dict = config.model_dump()
         
         # Apply environment overrides
         if env_overrides is None:
@@ -188,12 +188,12 @@ class ConfigManager:
             
         provider_upper = provider_name.upper()
         
-        # Read provider-specific configuration
+        # Read provider-specific configuration with fallback to general LLM config
         config_data = {
             'name': provider_name,
-            'model': os.getenv(f"CASECRAFT_{provider_upper}_MODEL"),
-            'api_key': os.getenv(f"CASECRAFT_{provider_upper}_API_KEY"),
-            'base_url': os.getenv(f"CASECRAFT_{provider_upper}_BASE_URL"),
+            'model': os.getenv(f"CASECRAFT_{provider_upper}_MODEL") or os.getenv("CASECRAFT_LLM_MODEL"),
+            'api_key': os.getenv(f"CASECRAFT_{provider_upper}_API_KEY") or os.getenv("CASECRAFT_LLM_API_KEY"),
+            'base_url': os.getenv(f"CASECRAFT_{provider_upper}_BASE_URL") or os.getenv("CASECRAFT_LLM_BASE_URL"),
             
             # Common configuration with fallbacks
             'timeout': int(os.getenv(f"CASECRAFT_{provider_upper}_TIMEOUT", 
