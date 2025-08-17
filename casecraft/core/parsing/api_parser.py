@@ -492,7 +492,9 @@ class APIParser:
         include_tags: Optional[List[str]] = None,
         exclude_tags: Optional[List[str]] = None,
         include_paths: Optional[List[str]] = None,
-        exclude_paths: Optional[List[str]] = None
+        exclude_paths: Optional[List[str]] = None,
+        include_methods: Optional[List[str]] = None,
+        exclude_methods: Optional[List[str]] = None
     ) -> APISpecification:
         """Filter endpoints based on criteria.
         
@@ -502,6 +504,8 @@ class APIParser:
             exclude_tags: Tags to exclude (if any match)
             include_paths: Path patterns to include
             exclude_paths: Path patterns to exclude
+            include_methods: HTTP methods to include
+            exclude_methods: HTTP methods to exclude
             
         Returns:
             Filtered API specification
@@ -511,6 +515,19 @@ class APIParser:
         filtered_endpoints = []
         
         for endpoint in spec.endpoints:
+            # Check method filters (case insensitive)
+            if include_methods:
+                method_upper = endpoint.method.upper()
+                include_methods_upper = [m.upper() if isinstance(m, str) else m for m in include_methods]
+                if method_upper not in include_methods_upper:
+                    continue
+            
+            if exclude_methods:
+                method_upper = endpoint.method.upper()
+                exclude_methods_upper = [m.upper() if isinstance(m, str) else m for m in exclude_methods]
+                if method_upper in exclude_methods_upper:
+                    continue
+            
             # Check tag filters
             if include_tags:
                 if not any(tag in endpoint.tags for tag in include_tags):

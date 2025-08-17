@@ -31,7 +31,7 @@ llm:
 ### Command Structure
 - `casecraft init` - Initialize configuration with secure API key storage in `~/.casecraft/config.yaml`
 - `casecraft generate <source>` - Generate test cases from API docs (URL or local file)
-- Support for filtering: `--include-tag`, `--exclude-tag`, `--include-path`
+- Support for filtering: `--include-tag`, `--exclude-tag`, `--include-path`, `--include-method`, `--exclude-method`
 - Concurrent processing: `--workers N` (BigModel only supports 1)
 - Force regeneration: `--force`
 - Preview mode: `--dry-run`
@@ -115,6 +115,37 @@ The system prioritizes generating meaningful test cases over meeting arbitrary n
 - Concurrent processing should be the primary performance optimization
 - Network I/O to LLM should be the main bottleneck, not computation
 - Support both Chinese and English in documentation and error messages
+
+## Recent Feature Updates
+
+### HTTP Method Filtering (2025-08-17)
+
+**Feature**: Added support for filtering API endpoints by HTTP methods.
+
+**New CLI Options**:
+- `--include-method`: Include only endpoints with specific HTTP methods (e.g., POST, GET)
+- `--exclude-method`: Exclude endpoints with specific HTTP methods
+
+**Usage Examples**:
+```bash
+# Generate test cases for POST endpoints only
+casecraft generate api.json --provider glm --include-method POST --workers 1
+
+# Generate for multiple methods
+casecraft generate api.json --provider glm --include-method POST,PUT --workers 1
+
+# Exclude DELETE operations
+casecraft generate api.json --provider qwen --exclude-method DELETE --workers 3
+
+# Combine with path filtering
+casecraft generate api.json --include-path "/api/v1/orders" --include-method POST --workers 1
+```
+
+**Implementation Details**:
+1. Added HTTP method validation in `casecraft/cli/main.py`
+2. Enhanced `filter_endpoints` in `casecraft/core/parsing/api_parser.py` to support method filtering
+3. Updated `GeneratorEngine.generate` in `casecraft/core/engine.py` to accept method filters
+4. Integrated method filtering throughout the command processing pipeline
 
 ## Commands for Development
 

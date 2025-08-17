@@ -31,11 +31,13 @@ async def generate_command(
     include_tag: tuple,
     exclude_tag: tuple,
     include_path: tuple,
-    workers: int,
-    force: bool,
-    dry_run: bool,
-    organize_by: Optional[str],
-    verbose: bool,
+    include_method: Optional[list] = None,
+    exclude_method: Optional[list] = None,
+    workers: int = 1,
+    force: bool = False,
+    dry_run: bool = False,
+    organize_by: Optional[str] = None,
+    verbose: bool = False,
     quiet: bool = False,
     provider: Optional[str] = None,
     providers: Optional[str] = None,
@@ -51,6 +53,8 @@ async def generate_command(
         include_tag: Tags to include
         exclude_tag: Tags to exclude
         include_path: Path patterns to include
+        include_method: HTTP methods to include
+        exclude_method: HTTP methods to exclude
         workers: Number of workers
         force: Force regeneration
         dry_run: Dry run mode
@@ -61,6 +65,7 @@ async def generate_command(
         providers: Comma-separated provider list
         provider_map: Manual provider mapping
         strategy: Provider assignment strategy
+        model: Model to use for generation
     """
     # Load .env file early to ensure environment variables are available
     from pathlib import Path
@@ -83,6 +88,8 @@ async def generate_command(
             include_tag=include_tag,
             exclude_tag=exclude_tag,
             include_path=include_path,
+            include_method=include_method,
+            exclude_method=exclude_method,
             workers=workers,
             force=force,
             dry_run=dry_run,
@@ -118,6 +125,8 @@ async def generate_command(
         include_tags = list(include_tag) if include_tag else None
         exclude_tags = list(exclude_tag) if exclude_tag else None
         include_paths = list(include_path) if include_path else None
+        include_methods = include_method  # Already validated as list
+        exclude_methods = exclude_method  # Already validated as list
         
         # Generate test cases
         result = await engine.generate(
@@ -125,6 +134,8 @@ async def generate_command(
             include_tags=include_tags,
             exclude_tags=exclude_tags,
             include_paths=include_paths,
+            include_methods=include_methods,
+            exclude_methods=exclude_methods,
             force=force,
             dry_run=dry_run
         )
@@ -435,13 +446,13 @@ def _show_generation_results(result: GenerationResult) -> None:
     table.add_row("📊", "Total Endpoints:", f"[bold]{result.total_endpoints}[/bold]")
     table.add_row("✅", "Generated:      ", f"[green bold]{result.generated_count}[/green bold]")
     table.add_row("📋", "Test Cases:     ", f"[cyan bold]{result.total_test_cases}[/cyan bold]")
-    table.add_row("⏭", "Skipped:        ", f"[dim]{result.skipped_count}[/dim]")
+    table.add_row("⏩", "Skipped:        ", f"[dim]{result.skipped_count}[/dim]")
     
     if result.failed_count > 0:
         table.add_row("❌", "Failed:         ", f"[red]{result.failed_count}[/red]")
     
     # Format duration
-    table.add_row("⏱", "Duration:       ", f"{result.duration:.1f}s")
+    table.add_row("⏰", "Duration:       ", f"{result.duration:.1f}s")
     
     # Add retry summary if there were retries
     retry_summary = result.get_retry_summary()
@@ -502,6 +513,8 @@ async def _generate_with_providers(
     include_tag: tuple,
     exclude_tag: tuple,
     include_path: tuple,
+    include_method: Optional[list],
+    exclude_method: Optional[list],
     workers: int,
     force: bool,
     dry_run: bool,
@@ -527,6 +540,7 @@ async def _generate_with_providers(
             # Single provider mode
             await _run_single_provider(
                 source, output, include_tag, exclude_tag, include_path,
+                include_method, exclude_method,
                 workers, force, dry_run, organize_by, verbose, quiet, provider, model
             )
         else:
@@ -538,6 +552,7 @@ async def _generate_with_providers(
             
             await _run_multi_provider(
                 source, output, include_tag, exclude_tag, include_path,
+                include_method, exclude_method,
                 workers, force, dry_run, organize_by, verbose, quiet,
                 providers, provider_map, strategy
             )
@@ -565,6 +580,8 @@ async def _run_single_provider(
     include_tag: tuple,
     exclude_tag: tuple,
     include_path: tuple,
+    include_method: Optional[list],
+    exclude_method: Optional[list],
     workers: int,
     force: bool,
     dry_run: bool,
@@ -684,6 +701,8 @@ async def _run_single_provider(
         include_tags=include_tags,
         exclude_tags=exclude_tags,
         include_paths=include_paths,
+        include_methods=include_method,
+        exclude_methods=exclude_method,
         force=force,
         dry_run=dry_run
     )
@@ -725,6 +744,8 @@ async def _run_multi_provider(
     include_tag: tuple,
     exclude_tag: tuple,
     include_path: tuple,
+    include_method: Optional[list],
+    exclude_method: Optional[list],
     workers: int,
     force: bool,
     dry_run: bool,
@@ -777,7 +798,9 @@ async def _run_multi_provider(
         api_spec.endpoints,
         include_tags,
         exclude_tags,
-        include_paths
+        include_paths,
+        include_method,
+        exclude_method
     )
     
     # Perform health checks
@@ -881,16 +904,25 @@ def _path_matches(endpoint_path: str, pattern: str) -> bool:
     return False
 
 
-def _filter_endpoints(endpoints, include_tags, exclude_tags, include_paths):
+def _filter_endpoints(endpoints, include_tags, exclude_tags, include_paths, include_methods=None, exclude_methods=None):
     """Filter endpoints based on criteria."""
     filtered = endpoints
     
+    # Filter by HTTP methods
+    if include_methods:
+        filtered = [e for e in filtered if e.method.upper() in [m.upper() if isinstance(m, str) else m for m in include_methods]]
+    
+    if exclude_methods:
+        filtered = [e for e in filtered if e.method.upper() not in [m.upper() if isinstance(m, str) else m for m in exclude_methods]]
+    
+    # Filter by tags
     if include_tags:
         filtered = [e for e in filtered if any(tag in e.tags for tag in include_tags)]
     
     if exclude_tags:
         filtered = [e for e in filtered if not any(tag in e.tags for tag in exclude_tags)]
     
+    # Filter by paths
     if include_paths:
         filtered = [e for e in filtered if any(_path_matches(e.path, pattern) for pattern in include_paths)]
     

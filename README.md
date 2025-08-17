@@ -4,6 +4,7 @@
 
 ## 🆕 最新更新 (2025-08-17)
 
+- **HTTP方法筛选**: 新增 `--include-method` 和 `--exclude-method` 参数，支持按HTTP方法筛选接口
 - **智能推断系统**: 实现基于OpenAPI规范的智能推断，完全移除硬编码路径映射
 - **通用性大幅提升**: 支持任何RESTful API，不再局限于电商领域
 - **轻量级依赖**: 仅增加inflect库用于英文处理，保持系统轻量
@@ -115,27 +116,48 @@ casecraft generate ecommerce_api_openapi.json \
   --workers 1 \
   --force
 
+# 4. 只生成POST接口的测试用例
+casecraft generate ecommerce_api_openapi.json \
+  --provider glm \
+  --include-method POST \
+  --workers 1 \
+  --force
 
-# 5. 多提供商并发处理所有端点
+# 5. 排除DELETE操作，生成其他所有接口
+casecraft generate ecommerce_api_openapi.json \
+  --provider qwen \
+  --exclude-method DELETE \
+  --workers 3 \
+  --force
+
+# 6. 组合筛选：生成订单模块的POST接口
+casecraft generate ecommerce_api_openapi.json \
+  --provider glm \
+  --include-path "/api/v1/orders" \
+  --include-method POST \
+  --workers 1 \
+  --force
+
+# 7. 多提供商并发处理所有端点
 casecraft generate ecommerce_api_openapi.json \
   --providers glm,qwen,deepseek \
   --strategy round_robin \
   --force
 
-# 6. 查看端点数量但不生成（dry-run）
+# 8. 查看端点数量但不生成（dry-run）
 casecraft generate ecommerce_api_openapi.json \
   --provider qwen \
   --include-tag "users" \
   --dry-run
 
-# 7. 指定输出目录和组织方式
+# 9. 指定输出目录和组织方式
 casecraft generate api.json \
   --provider qwen \
   --output test_output \
   --organize-by tag \
   --workers 3
 
-# 8. 使用特定模型版本
+# 10. 使用特定模型版本
 casecraft generate api.json \
   --provider qwen \
   --model qwen-max \
@@ -198,6 +220,8 @@ casecraft generate api.json --provider qwen --include-tag "auth" --workers 3
 - `--include-tag`: 只包含指定标签的端点
 - `--exclude-tag`: 排除指定标签的端点
 - `--include-path`: 只包含匹配模式的路径
+- `--include-method`: 只包含指定HTTP方法的端点（如 POST, GET）
+- `--exclude-method`: 排除指定HTTP方法的端点
 - `--workers, -w`: 并发工作线程数（根据提供商和端点数量调整）
 - `--force`: 强制重新生成所有测试用例
 - `--dry-run`: 预览模式，不调用 LLM

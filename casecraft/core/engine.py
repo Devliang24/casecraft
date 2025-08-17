@@ -208,6 +208,8 @@ class GeneratorEngine:
         exclude_tags: Optional[List[str]] = None,
         include_paths: Optional[List[str]] = None,
         exclude_paths: Optional[List[str]] = None,
+        include_methods: Optional[List[str]] = None,
+        exclude_methods: Optional[List[str]] = None,
         force: bool = False,
         dry_run: bool = False
     ) -> GenerationResult:
@@ -219,6 +221,8 @@ class GeneratorEngine:
             exclude_tags: Tags to exclude  
             include_paths: Path patterns to include
             exclude_paths: Path patterns to exclude
+            include_methods: HTTP methods to include
+            exclude_methods: HTTP methods to exclude
             force: Force regenerate all endpoints
             dry_run: Preview mode without LLM calls
             
@@ -241,16 +245,31 @@ class GeneratorEngine:
                     result.api_spec = api_spec
                 
                 # Apply filters
-                if include_tags or exclude_tags or include_paths or exclude_paths:
+                if include_tags or exclude_tags or include_paths or exclude_paths or include_methods or exclude_methods:
                     original_count = len(api_spec.endpoints)
                     self.logger.file_only(f"Applying filters: include_tags={include_tags}, exclude_tags={exclude_tags}, "
-                                    f"include_paths={include_paths}, exclude_paths={exclude_paths}", level="DEBUG")
+                                    f"include_paths={include_paths}, exclude_paths={exclude_paths}, "
+                                    f"include_methods={include_methods}, exclude_methods={exclude_methods}", level="DEBUG")
                     
                     if not self.quiet:
-                        self.console.print("[blue]🔍 Applying filters...[/blue]")
+                        filters = []
+                        if include_methods:
+                            filters.append(f"methods={','.join(include_methods)}")
+                        if exclude_methods:
+                            filters.append(f"exclude_methods={','.join(exclude_methods)}")
+                        if include_paths:
+                            filters.append(f"paths included")
+                        if include_tags:
+                            filters.append(f"tags included")
+                        
+                        if filters:
+                            self.console.print(f"[blue]🔍 Applying filters: {', '.join(filters)}[/blue]")
+                        else:
+                            self.console.print("[blue]🔍 Applying filters...[/blue]")
                     
                     api_spec = self.api_parser.filter_endpoints(
-                        api_spec, include_tags, exclude_tags, include_paths, exclude_paths
+                        api_spec, include_tags, exclude_tags, include_paths, exclude_paths,
+                        include_methods, exclude_methods
                     )
                     
                     filtered_count = len(api_spec.endpoints)

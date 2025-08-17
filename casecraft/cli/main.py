@@ -71,6 +71,41 @@ class KeepDaysType(click.ParamType):
             )
 
 
+def validate_http_methods(methods: tuple) -> list:
+    """验证HTTP方法是否有效
+    
+    Args:
+        methods: HTTP方法元组
+        
+    Returns:
+        规范化的HTTP方法列表（大写）
+        
+    Raises:
+        click.BadParameter: 如果方法无效
+    """
+    if not methods:
+        return None
+    
+    valid_methods = {'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'}
+    normalized = []
+    invalid = []
+    
+    for method in methods:
+        method_upper = method.upper()
+        if method_upper in valid_methods:
+            normalized.append(method_upper)
+        else:
+            invalid.append(method)
+    
+    if invalid:
+        raise click.BadParameter(
+            f"Invalid HTTP method(s): {', '.join(invalid)}. "
+            f"Valid methods are: {', '.join(sorted(valid_methods))}"
+        )
+    
+    return normalized
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="casecraft")
 @click.option(
@@ -287,6 +322,16 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     help="Include only paths matching these patterns"
 )
 @click.option(
+    "--include-method",
+    multiple=True,
+    help="Include only endpoints with specific HTTP methods (e.g., POST, GET)"
+)
+@click.option(
+    "--exclude-method",
+    multiple=True,
+    help="Exclude endpoints with specific HTTP methods"
+)
+@click.option(
     "--workers", "-w",
     required=True,
     type=int,
@@ -344,6 +389,8 @@ def generate(
     include_tag: tuple,
     exclude_tag: tuple,
     include_path: tuple,
+    include_method: tuple,
+    exclude_method: tuple,
     workers: int,
     force: bool,
     dry_run: bool,
@@ -378,12 +425,24 @@ def generate(
         
         # With filters and options
         casecraft generate ./api-docs.yaml --provider glm --include-tag users --force
+        
+        # Filter by HTTP methods
+        casecraft generate api.json --provider glm --include-method POST
+        casecraft generate api.json --provider glm --exclude-method DELETE
     """
     from casecraft.cli.generate_command import run_generate_command
     from casecraft.utils.logging import CaseCraftLogger
     
     verbose = ctx.obj.get("verbose", False)
     quiet = ctx.obj.get("quiet", False)
+    
+    # 验证HTTP方法
+    try:
+        validated_include_methods = validate_http_methods(include_method)
+        validated_exclude_methods = validate_http_methods(exclude_method)
+    except click.BadParameter as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        raise click.Abort()
     
     # Handle log_file option
     if log_file:
@@ -403,6 +462,8 @@ def generate(
         include_tag=include_tag,
         exclude_tag=exclude_tag,
         include_path=include_path,
+        include_method=validated_include_methods,
+        exclude_method=validated_exclude_methods,
         workers=workers,
         force=force,
         dry_run=dry_run,
