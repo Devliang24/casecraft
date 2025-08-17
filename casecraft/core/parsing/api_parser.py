@@ -450,6 +450,42 @@ class APIParser:
         except (KeyError, TypeError):
             return {}
     
+    def _path_matches(self, endpoint_path: str, pattern: str) -> bool:
+        """Smart path matching that handles trailing slash differences.
+        
+        Args:
+            endpoint_path: The endpoint path from API spec
+            pattern: The pattern to match against
+            
+        Returns:
+            True if paths match (considering trailing slash flexibility)
+        """
+        import fnmatch
+        
+        # Normalize paths by removing trailing slashes for comparison
+        def normalize_path(path: str) -> str:
+            return path.rstrip('/')
+        
+        endpoint_normalized = normalize_path(endpoint_path)
+        pattern_normalized = normalize_path(pattern)
+        
+        # Try exact match first (normalized)
+        if endpoint_normalized == pattern_normalized:
+            return True
+        
+        # Try fnmatch with both original and normalized versions
+        if fnmatch.fnmatch(endpoint_path, pattern):
+            return True
+        
+        if fnmatch.fnmatch(endpoint_normalized, pattern_normalized):
+            return True
+        
+        # Try substring matching (for backward compatibility)
+        if pattern in endpoint_path or pattern_normalized in endpoint_normalized:
+            return True
+        
+        return False
+    
     def filter_endpoints(
         self,
         spec: APISpecification,
@@ -486,11 +522,11 @@ class APIParser:
             
             # Check path filters
             if include_paths:
-                if not any(fnmatch.fnmatch(endpoint.path, pattern) for pattern in include_paths):
+                if not any(self._path_matches(endpoint.path, pattern) for pattern in include_paths):
                     continue
             
             if exclude_paths:
-                if any(fnmatch.fnmatch(endpoint.path, pattern) for pattern in exclude_paths):
+                if any(self._path_matches(endpoint.path, pattern) for pattern in exclude_paths):
                     continue
             
             filtered_endpoints.append(endpoint)

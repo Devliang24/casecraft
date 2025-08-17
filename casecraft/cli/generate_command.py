@@ -844,6 +844,43 @@ def _parse_provider_map(mapping_str: str) -> Dict[str, str]:
     return mapping
 
 
+def _path_matches(endpoint_path: str, pattern: str) -> bool:
+    """Smart path matching that handles trailing slash differences.
+    
+    Args:
+        endpoint_path: The endpoint path from API spec
+        pattern: The pattern to match against
+        
+    Returns:
+        True if paths match (considering trailing slash flexibility)
+    """
+    import fnmatch
+    
+    # Normalize paths by removing trailing slashes for comparison
+    def normalize_path(path: str) -> str:
+        return path.rstrip('/')
+    
+    endpoint_normalized = normalize_path(endpoint_path)
+    pattern_normalized = normalize_path(pattern)
+    
+    # Try exact match first (normalized)
+    if endpoint_normalized == pattern_normalized:
+        return True
+    
+    # Try fnmatch with both original and normalized versions
+    if fnmatch.fnmatch(endpoint_path, pattern):
+        return True
+    
+    if fnmatch.fnmatch(endpoint_normalized, pattern_normalized):
+        return True
+    
+    # Try substring matching (for backward compatibility)
+    if pattern in endpoint_path or pattern_normalized in endpoint_normalized:
+        return True
+    
+    return False
+
+
 def _filter_endpoints(endpoints, include_tags, exclude_tags, include_paths):
     """Filter endpoints based on criteria."""
     filtered = endpoints
@@ -855,7 +892,7 @@ def _filter_endpoints(endpoints, include_tags, exclude_tags, include_paths):
         filtered = [e for e in filtered if not any(tag in e.tags for tag in exclude_tags)]
     
     if include_paths:
-        filtered = [e for e in filtered if any(pattern in e.path for pattern in include_paths)]
+        filtered = [e for e in filtered if any(_path_matches(e.path, pattern) for pattern in include_paths)]
     
     return filtered
 

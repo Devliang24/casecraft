@@ -1326,7 +1326,7 @@ Return the test cases as a JSON array:"""
             # Required parameters get extra points
             required_count = sum(1 for params in param_by_location.values() 
                                 for p in params if (hasattr(p, 'required') and p.required) 
-                                or p.get("required", False))
+                                or (isinstance(p, dict) and p.get("required", False)))
             if required_count > 0:
                 complexity_score += required_count * 0.5
         
