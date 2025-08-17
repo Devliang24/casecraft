@@ -484,6 +484,12 @@ class TestCaseGenerator:
         """Get system prompt for LLM."""
         return """你是一个专业的API用例设计工程师，负责设计全面、高质量的测试用例。
 
+⚠️ **关键要求：必须生成充足数量的正向测试用例！**
+- POST端点：至少7个正向测试用例
+- GET端点：至少4个正向测试用例  
+- PUT/PATCH端点：至少5个正向测试用例
+- DELETE端点：至少4个正向测试用例
+
 ## 🎯 核心设计理念
 "完善的测试设计是高质量API的基石" - 请设计充分的测试用例以确保接口的可靠性。
 
@@ -697,10 +703,13 @@ Headers设置智能规则：
 请根据接口复杂度生成相应数量的高质量测试用例。每个用例都应该有明确的测试目的，避免重复或无意义的测试。
 
 ⚠️ **关键提醒**:
-1. **强烈建议**生成推荐数量的测试用例（正向{complexity['recommended_counts']['positive'][1]}个，负向{complexity['recommended_counts']['negative'][1]}个）
-2. 每个测试用例必须包含所有必需字段
-3. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
-4. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
+1. **必须生成**足够的正向测试用例：至少{complexity['recommended_counts']['positive'][0]}个，推荐{complexity['recommended_counts']['positive'][1]}个
+2. **必须生成**足够的负向测试用例：至少{complexity['recommended_counts']['negative'][0]}个，推荐{complexity['recommended_counts']['negative'][1]}个
+3. 每个测试用例必须包含所有必需字段
+4. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
+5. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
+
+🔥 **最重要：确保正向测试用例数量达到要求！不要少于{complexity['recommended_counts']['positive'][0]}个！**
 
 Return the test cases as a JSON array:"""
         

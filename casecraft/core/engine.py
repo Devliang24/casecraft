@@ -584,9 +584,11 @@ class GeneratorEngine:
                 token_info = ""
             
             # Final update to mark this endpoint as complete
+            # Use actual completion count instead of endpoint_index for concurrent execution
+            completed_count = result.generated_count + result.failed_count + result.skipped_count
             progress.update(
                 task_id, 
-                completed=int(((endpoint_index + 1) / total_endpoints) * 100),
+                completed=int((completed_count / total_endpoints) * 100),
                 description=f"Completed: {endpoint_id}"
             )
             
