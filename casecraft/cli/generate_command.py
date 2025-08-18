@@ -73,6 +73,10 @@ async def generate_command(
     env_file = Path.cwd() / ".env"
     if env_file.exists():
         load_dotenv(env_file, override=False)
+    else:
+        # Show warning but continue - user might have env vars set
+        console.print("[yellow]⚠️  未在当前目录找到 .env 文件[/yellow]")
+        console.print(f"[dim]当前目录: {Path.cwd()}[/dim]\n")
     
     # Check if multi-provider support is requested
     # Default to GLM provider if no provider is specified but LLM model is configured
@@ -145,8 +149,32 @@ async def generate_command(
             _show_results(result, dry_run)
         
     except ConfigError as e:
-        console.print(f"[red]Configuration Error:[/red] {e}")
-        _show_config_help()
+        error_msg = str(e)
+        console.print(f"\n[red]❌ 配置错误: {error_msg}[/red]")
+        
+        # Check if it's an API key error and provide better guidance
+        if "API key not configured" in error_msg:
+            # Extract provider name from error message
+            import re
+            match = re.search(r'for (\w+)', error_msg)
+            provider_name = match.group(1) if match else 'unknown'
+            
+            env_file = Path.cwd() / ".env"
+            if not env_file.exists():
+                console.print("\n[yellow]💡 提示：[/yellow]")
+                console.print("1. 未在当前目录找到 .env 文件")
+                console.print(f"   当前目录: [cyan]{Path.cwd()}[/cyan]")
+                console.print("\n2. 请切换到包含 .env 文件的项目目录，或：")
+                console.print("   - 复制配置模板: [cyan]cp /path/to/.env.example .env[/cyan]")
+                console.print("   - 编辑 .env 文件，填写您的 API 密钥")
+                console.print("\n3. 或者设置环境变量：")
+                console.print(f"   [cyan]export CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+            else:
+                console.print("\n[yellow]💡 .env 文件存在但缺少配置：[/yellow]")
+                console.print(f"请编辑 .env 文件，添加: [cyan]CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+        else:
+            _show_config_help()
+        
         raise click.ClickException(str(e))
     except GeneratorError as e:
         console.print(f"[red]Generation Error:[/red] {e}")
@@ -558,8 +586,32 @@ async def _generate_with_providers(
             )
             
     except ConfigError as e:
-        console.print(f"[red]Configuration Error:[/red] {e}")
-        _show_provider_config_help()
+        error_msg = str(e)
+        console.print(f"\n[red]❌ 配置错误: {error_msg}[/red]")
+        
+        # Check if it's an API key error and provide better guidance
+        if "API key not configured" in error_msg:
+            # Extract provider name from error message
+            import re
+            match = re.search(r'for (\w+)', error_msg)
+            provider_name = match.group(1) if match else provider or 'unknown'
+            
+            env_file = Path.cwd() / ".env"
+            if not env_file.exists():
+                console.print("\n[yellow]💡 提示：[/yellow]")
+                console.print("1. 未在当前目录找到 .env 文件")
+                console.print(f"   当前目录: [cyan]{Path.cwd()}[/cyan]")
+                console.print("\n2. 请切换到包含 .env 文件的项目目录，或：")
+                console.print("   - 复制配置模板: [cyan]cp /path/to/.env.example .env[/cyan]")
+                console.print("   - 编辑 .env 文件，填写您的 API 密钥")
+                console.print("\n3. 或者设置环境变量：")
+                console.print(f"   [cyan]export CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+            else:
+                console.print("\n[yellow]💡 .env 文件存在但缺少配置：[/yellow]")
+                console.print(f"请编辑 .env 文件，添加: [cyan]CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+        else:
+            _show_provider_config_help()
+        
         raise click.ClickException(str(e))
     except GeneratorError as e:
         console.print(f"[red]Generation Error:[/red] {e}")
@@ -612,7 +664,30 @@ async def _run_single_provider(
             provider_config = ProviderConfig(**config_dict)
             
     except ConfigError as e:
-        console.print(f"[red]Configuration Error:[/red] {e}")
+        error_msg = str(e)
+        console.print(f"\n[red]❌ 配置错误: {error_msg}[/red]")
+        
+        # Check if it's an API key error
+        if "API key not configured" in error_msg:
+            # Extract provider name from error message
+            import re
+            match = re.search(r'for (\w+)', error_msg)
+            provider_name = match.group(1) if match else provider
+            
+            env_file = Path.cwd() / ".env"
+            if not env_file.exists():
+                console.print("\n[yellow]💡 提示：[/yellow]")
+                console.print("1. 未在当前目录找到 .env 文件")
+                console.print(f"   当前目录: [cyan]{Path.cwd()}[/cyan]")
+                console.print("\n2. 请切换到包含 .env 文件的项目目录，或：")
+                console.print("   - 复制配置模板: [cyan]cp /path/to/.env.example .env[/cyan]")
+                console.print("   - 编辑 .env 文件，填写您的 API 密钥")
+                console.print("\n3. 或者设置环境变量：")
+                console.print(f"   [cyan]export CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+            else:
+                console.print("\n[yellow]💡 .env 文件存在但缺少配置：[/yellow]")
+                console.print(f"请编辑 .env 文件，添加: [cyan]CASECRAFT_{provider_name.upper()}_API_KEY=your-api-key[/cyan]")
+        
         raise click.ClickException(str(e))
     
     # 4. Register provider class to Registry
