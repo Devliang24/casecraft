@@ -13,13 +13,15 @@ import logging
 class FileCleanupManager:
     """文件清理管理器."""
     
-    def __init__(self, dry_run: bool = False):
+    def __init__(self, dry_run: bool = False, force: bool = False):
         """初始化文件清理管理器.
         
         Args:
             dry_run: 是否为预览模式，不实际删除文件
+            force: 是否强制清理所有文件
         """
         self.dry_run = dry_run
+        self.force = force
         self.logger = logging.getLogger("casecraft.cleanup")
         
     def clean_logs(self, log_dir: str = "logs", keep_days: int = 7, keep_count: int = 5) -> Dict[str, int]:
@@ -44,26 +46,39 @@ class FileCleanupManager:
             self.logger.info("没有找到日志文件")
             return {"deleted": 0, "kept": 0, "size_freed": 0}
         
-        # 按修改时间排序（最新的在前）
-        log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        
-        cutoff_time = time.time() - (keep_days * 24 * 3600)
         deleted_count = 0
         size_freed = 0
         
-        # 保留最新的 keep_count 个文件
-        files_to_check = log_files[keep_count:]
-        
-        for log_file in files_to_check:
-            if log_file.stat().st_mtime < cutoff_time:
+        if self.force:
+            # 强制模式：删除所有日志文件
+            for log_file in log_files:
                 file_size = log_file.stat().st_size
                 if self.dry_run:
-                    self.logger.info(f"[预览] 将删除日志文件: {log_file} ({file_size} bytes)")
+                    self.logger.info(f"[预览] 将强制删除日志文件: {log_file} ({file_size} bytes)")
                 else:
-                    self.logger.info(f"删除过期日志文件: {log_file}")
+                    self.logger.info(f"强制删除日志文件: {log_file}")
                     log_file.unlink()
                 deleted_count += 1
                 size_freed += file_size
+        else:
+            # 按修改时间排序（最新的在前）
+            log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+            
+            cutoff_time = time.time() - (keep_days * 24 * 3600)
+            
+            # 保留最新的 keep_count 个文件
+            files_to_check = log_files[keep_count:]
+            
+            for log_file in files_to_check:
+                if log_file.stat().st_mtime < cutoff_time:
+                    file_size = log_file.stat().st_size
+                    if self.dry_run:
+                        self.logger.info(f"[预览] 将删除日志文件: {log_file} ({file_size} bytes)")
+                    else:
+                        self.logger.info(f"删除过期日志文件: {log_file}")
+                        log_file.unlink()
+                    deleted_count += 1
+                    size_freed += file_size
         
         kept_count = len(log_files) - deleted_count
         
@@ -84,46 +99,61 @@ class FileCleanupManager:
             self.logger.info(f"测试用例目录不存在: {test_path}")
             return {"deleted": 0, "kept": 0, "size_freed": 0}
         
-        # 查找带时间戳的重复文件
-        patterns = [
-            "*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9].json"
-        ]
-        
-        file_groups = {}
         size_freed = 0
         deleted_count = 0
         
-        for pattern in patterns:
-            files = list(test_path.glob(pattern))
-            
-            # 按基础名称分组
-            for file in files:
-                # 提取基础名称（去掉时间戳）
-                base_name = file.name.split('_202')[0]  # 假设时间戳以202开头
-                if base_name not in file_groups:
-                    file_groups[base_name] = []
-                file_groups[base_name].append(file)
-        
-        # 对每组文件，只保留最新的
-        for base_name, files in file_groups.items():
-            if len(files) <= 1:
-                continue
-                
-            # 按修改时间排序，保留最新的
-            files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-            files_to_delete = files[1:]  # 删除除最新外的所有文件
-            
-            for file in files_to_delete:
-                file_size = file.stat().st_size
+        if self.force:
+            # 强制模式：删除所有JSON文件（保留.gitkeep）
+            json_files = list(test_path.glob("*.json"))
+            for json_file in json_files:
+                file_size = json_file.stat().st_size
                 if self.dry_run:
-                    self.logger.info(f"[预览] 将删除重复文件: {file} ({file_size} bytes)")
+                    self.logger.info(f"[预览] 将强制删除测试文件: {json_file} ({file_size} bytes)")
                 else:
-                    self.logger.info(f"删除重复测试文件: {file}")
-                    file.unlink()
+                    self.logger.info(f"强制删除测试文件: {json_file}")
+                    json_file.unlink()
                 deleted_count += 1
                 size_freed += file_size
-        
-        kept_count = sum(1 for group in file_groups.values() if group)
+            kept_count = 0
+        else:
+            # 查找带时间戳的重复文件
+            patterns = [
+                "*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9].json"
+            ]
+            
+            file_groups = {}
+            
+            for pattern in patterns:
+                files = list(test_path.glob(pattern))
+                
+                # 按基础名称分组
+                for file in files:
+                    # 提取基础名称（去掉时间戳）
+                    base_name = file.name.split('_202')[0]  # 假设时间戳以202开头
+                    if base_name not in file_groups:
+                        file_groups[base_name] = []
+                    file_groups[base_name].append(file)
+            
+            # 对每组文件，只保留最新的
+            for base_name, files in file_groups.items():
+                if len(files) <= 1:
+                    continue
+                    
+                # 按修改时间排序，保留最新的
+                files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+                files_to_delete = files[1:]  # 删除除最新外的所有文件
+            
+                for file in files_to_delete:
+                    file_size = file.stat().st_size
+                    if self.dry_run:
+                        self.logger.info(f"[预览] 将删除重复文件: {file} ({file_size} bytes)")
+                    else:
+                        self.logger.info(f"删除重复测试文件: {file}")
+                        file.unlink()
+                    deleted_count += 1
+                    size_freed += file_size
+            
+            kept_count = sum(1 for group in file_groups.values() if group)
         
         self.logger.info(f"测试用例清理完成: 删除 {deleted_count} 个重复文件, 保留 {kept_count} 组, 释放 {size_freed} bytes")
         return {"deleted": deleted_count, "kept": kept_count, "size_freed": size_freed}

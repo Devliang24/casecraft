@@ -231,8 +231,13 @@ def init() -> None:
     is_flag=True,
     help="显示可清理文件的摘要信息"
 )
+@click.option(
+    "--force",
+    is_flag=True,
+    help="强制清理所有文件（不保留任何文件）"
+)
 @click.pass_context  
-def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary):
+def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary, force):
     """清理临时文件和过期数据.
     
     该命令可以清理以下类型的文件：
@@ -248,6 +253,8 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     casecraft cleanup --logs --keep-days 3         # 清理3天前的日志
     casecraft cleanup --test-cases                 # 清理重复测试文件
     casecraft cleanup --all                        # 清理所有类型文件
+    casecraft cleanup --all --force                # 强制清理所有文件
+    casecraft cleanup --logs --force --dry-run     # 预览强制清理日志
     
     💡 提示：建议先使用 --dry-run 预览要删除的文件
     """
@@ -256,10 +263,18 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     from casecraft.cli.cleanup_command import _show_cleanup_summary, _show_results_summary
     
     console = Console()
-    cleanup_manager = FileCleanupManager(dry_run=dry_run)
+    cleanup_manager = FileCleanupManager(dry_run=dry_run, force=force)
     
     if dry_run:
         console.print("[yellow]🔍 预览模式 - 不会实际删除文件[/yellow]")
+        console.print()
+    
+    if force:
+        console.print("[red bold]⚠️  强制模式 - 将删除所有文件！[/red bold]")
+        if not dry_run:
+            if not click.confirm("确定要强制删除所有文件吗？", default=False):
+                console.print("[yellow]已取消操作[/yellow]")
+                return
         console.print()
     
     if summary:

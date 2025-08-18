@@ -742,7 +742,7 @@ Return the test cases as a JSON array:"""
             raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
         
         if not isinstance(test_data, list):
-            # Special handling for non-array responses (e.g., from Kimi provider)
+            # Special handling for non-array responses
             self.logger.file_only(f"Response is not an array, attempting to extract test cases from {type(test_data)}", level="WARNING")
             
             if isinstance(test_data, dict):
@@ -796,7 +796,7 @@ Return the test cases as a JSON array:"""
                     else:
                         # Log the structure for debugging
                         self.logger.error(f"Could not extract test cases from dict with keys: {list(test_data.keys())}")
-                        if os.getenv("CASECRAFT_DEBUG_KIMI"):
+                        if os.getenv("CASECRAFT_DEBUG_RESPONSE"):
                             import time
                             debug_file = f"failed_response_{int(time.time())}.json"
                             try:
