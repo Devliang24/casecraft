@@ -58,15 +58,17 @@
 pip install casecraft
 ```
 
-### 初始化配置
+### 配置 API 密钥
 
 ```bash
-casecraft init
+# 1. 复制配置模板
+cp .env.example .env
+
+# 2. 编辑 .env 文件，填写您的 API 密钥
+vim .env
 ```
 
-配置文件保存在 `~/.casecraft/config.yaml`，包含 BigModel API 密钥等设置。
-
-> **提示**: 如需使用 BigModel API，可以在 [BigModel 开放平台](https://open.bigmodel.cn/) 申请 API 密钥。
+> **注意**: 必须通过 `--provider` 参数指定要使用的 LLM 提供商（glm/qwen/deepseek/local）
 
 ### 生成测试用例
 
@@ -95,81 +97,65 @@ casecraft generate ./api.yaml --dry-run
 #### 完整实战示例
 
 ```bash
-# 1. 使用千问处理单个端点（使用 --workers 1）
-casecraft generate ecommerce_api_openapi.json \
-  --provider qwen \
-  --include-path "/api/v1/auth/register" \
-  --workers 1 \
-  --force
+# 1. 基础用法 - 生成所有接口的测试用例
+casecraft generate api.json --provider glm --workers 1
 
-# 2. 使用千问处理多个端点（使用 --workers 3，千问支持3个并发）
-casecraft generate ecommerce_api_openapi.json \
-  --provider qwen \
-  --include-tag "auth" \
-  --workers 3 \
-  --force
+# 2. 只生成 POST 接口的测试用例
+casecraft generate api.json --provider glm --include-method POST --workers 1
 
-# 3. 使用GLM处理端点（GLM只支持单并发）
-casecraft generate ecommerce_api_openapi.json \
-  --provider glm \
-  --include-tag "products" \
-  --workers 1 \
-  --force
+# 3. 生成 GET 和 POST 接口
+casecraft generate api.json --provider qwen --include-method GET,POST --workers 3
 
-# 4. 只生成POST接口的测试用例
-casecraft generate ecommerce_api_openapi.json \
-  --provider glm \
-  --include-method POST \
-  --workers 1 \
-  --force
+# 4. 排除 DELETE 和 PATCH 操作
+casecraft generate api.json --provider deepseek --exclude-method DELETE,PATCH --workers 2
 
-# 5. 排除DELETE操作，生成其他所有接口
-casecraft generate ecommerce_api_openapi.json \
-  --provider qwen \
-  --exclude-method DELETE \
-  --workers 3 \
-  --force
+# 5. 生成认证模块的 POST 接口
+casecraft generate api.json --provider glm --include-path "/api/v1/auth" --include-method POST --workers 1
 
-# 6. 组合筛选：生成订单模块的POST接口
-casecraft generate ecommerce_api_openapi.json \
-  --provider glm \
-  --include-path "/api/v1/orders" \
-  --include-method POST \
-  --workers 1 \
-  --force
+# 6. 生成订单模块的 GET 和 POST 接口
+casecraft generate api.json --provider qwen --include-path "/api/v1/orders" --include-method GET,POST --workers 3
 
-# 7. 多提供商并发处理所有端点
-casecraft generate ecommerce_api_openapi.json \
-  --providers glm,qwen,deepseek \
-  --strategy round_robin \
-  --force
+# 7. 生成用户模块，排除 DELETE 操作
+casecraft generate api.json --provider glm --include-tag users --exclude-method DELETE --workers 1
 
-# 8. 查看端点数量但不生成（dry-run）
-casecraft generate ecommerce_api_openapi.json \
-  --provider qwen \
-  --include-tag "users" \
-  --dry-run
+# 8. 多提供商并发处理 POST 接口
+casecraft generate api.json --providers glm,qwen,deepseek --include-method POST --strategy round_robin
 
-# 9. 指定输出目录和组织方式
-casecraft generate api.json \
-  --provider qwen \
-  --output test_output \
-  --organize-by tag \
-  --workers 3
+# 9. 强制重新生成所有 PUT 和 PATCH 接口
+casecraft generate api.json --provider qwen --include-method PUT,PATCH --workers 3 --force
 
-# 10. 使用特定模型版本
-casecraft generate api.json \
-  --provider qwen \
-  --model qwen-max \
-  --workers 3 \
-  --force
+# 10. 生成产品模块的非查询接口（排除 GET）
+casecraft generate api.json --provider deepseek --include-path "/api/v1/products" --exclude-method GET --workers 2
 
-# 9. 使用 DeepSeek 处理复杂分析场景
-casecraft generate api.json \
-  --provider deepseek \
-  --include-tag "analytics" \
-  --workers 3 \
-  --force
+# 11. 组合多个标签和方法
+casecraft generate api.json --provider qwen --include-tag auth,users --include-method POST,PUT --workers 3
+
+# 12. 使用特定模型版本生成
+casecraft generate api.json --provider qwen --model qwen-max --include-method POST --workers 3
+
+# 13. 预览模式 - 查看将生成的 POST 接口数量
+casecraft generate api.json --provider glm --include-method POST --dry-run
+
+# 14. 指定输出目录并按标签组织
+casecraft generate api.json --provider qwen --output test_output --organize-by tag --workers 3
+
+# 15. 从 URL 生成测试用例
+casecraft generate https://petstore.swagger.io/v2/swagger.json --provider glm --include-method GET,POST --workers 1
+
+# 16. 强制清理所有日志和测试用例
+casecraft cleanup --all --force
+
+# 17. 预览清理操作
+casecraft cleanup --all --force --dry-run
+
+# 18. 只清理日志文件
+casecraft cleanup --logs --force
+
+# 19. 清理重复的测试用例
+casecraft cleanup --test-cases
+
+# 20. 使用本地模型生成测试用例
+casecraft generate api.json --provider local --model llama2 --include-method POST --workers 4
 ```
 
 #### Workers 参数使用指南
