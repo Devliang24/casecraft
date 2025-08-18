@@ -580,8 +580,22 @@ class GeneratorEngine:
             else:
                 self.logger.file_only("No token usage data available from generation_result", level="WARNING")
             
+            # Show detailed progress with token usage
+            if generation_result.token_usage:
+                # Show raw token count
+                tokens = generation_result.token_usage.total_tokens
+                token_info = f" ({tokens} tokens)"
+            else:
+                token_info = ""
+            
+            # Brief success log with friendly formatting
+            self.console.print(f"  [green]✓[/green] Generated [bold]{len(collection.test_cases)}[/bold] test cases - {endpoint_id} [dim]{token_info}[/dim]")
+            
             # Save to file
             output_file = await self._save_test_cases(collection)
+            
+            # Log file write completion
+            self.console.print(f"  [blue]📝[/blue] Written to file: [cyan]{output_file.name}[/cyan]")
             
             # Update state
             await self.state_manager.mark_endpoint_generated(
@@ -594,14 +608,6 @@ class GeneratorEngine:
             result.add_test_cases(len(collection.test_cases))
             result.generated_files.append(str(output_file))
             
-            # Show detailed progress with token usage
-            if generation_result.token_usage:
-                # Show raw token count
-                tokens = generation_result.token_usage.total_tokens
-                token_info = f" ({tokens} tokens)"
-            else:
-                token_info = ""
-            
             # Final update to mark this endpoint as complete
             # Use actual completion count instead of endpoint_index for concurrent execution
             completed_count = result.generated_count + result.failed_count + result.skipped_count
@@ -610,9 +616,6 @@ class GeneratorEngine:
                 completed=int((completed_count / total_endpoints) * 100),
                 description=f"Completed: {endpoint_id}"
             )
-            
-            # Brief success log with friendly formatting
-            self.console.print(f"  [green]✓[/green] Generated [bold]{len(collection.test_cases)}[/bold] test cases - {endpoint_id} [dim]{token_info}[/dim]")
             
         except (TestGeneratorError, LLMError, LLMRateLimitError) as e:
             result.failed_count += 1

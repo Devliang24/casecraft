@@ -74,6 +74,9 @@ class OutputManager:
             async with aiofiles.open(output_path, 'w', encoding='utf-8') as f:
                 await f.write(content)
             
+            # Log successful write
+            self.logger.info(f"Successfully written {len(collection.test_cases)} test cases to {output_path.name}")
+            
             # Update tracking
             file_size = len(content.encode('utf-8'))
             self.generated_files.append(output_path)

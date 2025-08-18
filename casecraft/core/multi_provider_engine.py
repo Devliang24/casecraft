@@ -260,6 +260,9 @@ class MultiProviderEngine:
                     output_file = await self.output_manager.save_test_cases(test_cases)
                     result.generated_files.append(output_file)
                     
+                    # Log file write completion
+                    self.logger.info(f"Written to file: {output_file.name}")
+                    
                     # Update result
                     result.successful_endpoints.append(endpoint_id)
                     result.total_test_cases += len(test_cases.test_cases)
