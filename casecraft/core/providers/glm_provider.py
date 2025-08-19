@@ -18,7 +18,7 @@ from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.core.generation.test_generator import TestCaseGenerator
 from casecraft.utils.logging import get_logger
-from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS
+from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS, PROVIDER_BASE_URLS, PROVIDER_MAX_WORKERS
 
 
 class GLMProvider(LLMProvider):
@@ -36,10 +36,13 @@ class GLMProvider(LLMProvider):
         # BigModel API endpoint - use configured or default
         self.base_url = config.base_url
         if not self.base_url:
-            # Use default if not configured
-            self.base_url = "https://open.bigmodel.cn/api/paas/v4"
+            # Use default from constants
+            self.base_url = PROVIDER_BASE_URLS.get('glm')
             self.logger.info(f"Using default base URL: {self.base_url}")
-        self._request_lock = asyncio.Lock()  # Ensure single concurrency for GLM
+        
+        # Use constants for concurrency control
+        max_workers = PROVIDER_MAX_WORKERS.get('glm', 1)
+        self._request_lock = asyncio.Lock() if max_workers == 1 else asyncio.Semaphore(max_workers)
         self.logger = get_logger(f"provider.{self.name}")
         
         # Check for 'think' feature in config extras
@@ -89,7 +92,7 @@ class GLMProvider(LLMProvider):
                 "think": self.think,
                 "stream": self.config.stream,
                 "temperature": kwargs.get("temperature", self.config.temperature),
-                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")))
+                "max_tokens": kwargs.get("max_tokens", self.config.max_tokens)
             }
             
             # Add stream_options to get token usage in streaming mode
@@ -232,7 +235,7 @@ class GLMProvider(LLMProvider):
             "think": self.think,
             "stream": True,
             "temperature": temperature,
-            "max_tokens": int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")),
+            "max_tokens": self.config.max_tokens if hasattr(self.config, 'max_tokens') else int(os.getenv("CASECRAFT_GLM_MAX_TOKENS", os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
             "stream_options": {"include_usage": True}  # Get token usage in streaming mode
         }
         

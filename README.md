@@ -2,7 +2,13 @@
 
 使用多个 LLM 提供商解析 API 文档（OpenAPI/Swagger）并生成结构化测试用例的 CLI 工具。
 
-## 🆕 最新更新 (2025-08-17)
+## 🆕 最新更新 (2025-08-18)
+
+- **配置管理优化**: 重构 max_tokens 配置管理，各 Provider 配置更加清晰
+- **Provider 配置集中化**: 每个 Provider 的所有配置（包括 max_tokens）在 .env 文件中统一管理
+- **简化代码架构**: 移除 Provider 类中的环境变量回退逻辑，职责更加单一
+
+## 📅 历史更新 (2025-08-17)
 
 - **HTTP方法筛选**: 新增 `--include-method` 和 `--exclude-method` 参数，支持按HTTP方法筛选接口
 - **智能推断系统**: 实现基于OpenAPI规范的智能推断，完全移除硬编码路径映射
@@ -250,17 +256,19 @@ export CASECRAFT_PROVIDERS=glm,qwen,deepseek  # 多个提供商
 export CASECRAFT_GLM_MODEL=glm-4.5-airx
 export CASECRAFT_GLM_API_KEY="your-glm-api-key"
 export CASECRAFT_GLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+export CASECRAFT_GLM_MAX_TOKENS=16384  # GLM 支持大输出
 
 # Qwen (通义千问) 配置
 export CASECRAFT_QWEN_MODEL=qwen-max
 export CASECRAFT_QWEN_API_KEY="your-qwen-api-key"
 export CASECRAFT_QWEN_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-
+export CASECRAFT_QWEN_MAX_TOKENS=16384  # qwen-plus/turbo/flash 支持 16384 (qwen-max 仅 8192)
 
 # DeepSeek 配置
 export CASECRAFT_DEEPSEEK_MODEL=deepseek-chat
 export CASECRAFT_DEEPSEEK_API_KEY="your-deepseek-api-key"
 export CASECRAFT_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
+export CASECRAFT_DEEPSEEK_MAX_TOKENS=8192  # DeepSeek 最大限制
 
 # 或使用 .env 文件（推荐）
 cp .env.example .env
@@ -393,12 +401,14 @@ MIT License - 详见 [LICENSE](LICENSE) 文件。
 
 ## 支持的 LLM 提供商
 
-| 提供商 | 模型示例 | 并发数 | 特点 |
-|--------|----------|--------|------|
-| **GLM** (智谱) | glm-4.5-x, glm-4.5-airx | 1 | 高质量生成，支持思考模式 |
-| **Qwen** (通义千问) | qwen-max, qwen-plus | 3 | 快速响应，成本较低 |
-| **DeepSeek** | deepseek-chat, deepseek-coder | 3 | 代码理解能力强，推理准确 |
-| **Local** (Ollama/vLLM) | llama2, mistral | 可配置 | 本地部署，无成本 |
+| 提供商 | 模型示例 | 并发数 | 最大Tokens | 特点 |
+|--------|----------|--------|------------|------|
+| **GLM** (智谱) | glm-4.5-x, glm-4.5-airx | 1 | 16384 | 高质量生成，支持思考模式 |
+| **Qwen** (通义千问) | qwen-plus, qwen-turbo, qwen-flash | 3 | 16384* | 快速响应，成本较低 |
+| **DeepSeek** | deepseek-chat, deepseek-coder | 3 | 8192 | 代码理解能力强，推理准确 |
+| **Local** (Ollama/vLLM) | llama2, mistral | 可配置 | 8192 | 本地部署，无成本 |
+
+> **注意**: Qwen 系列中，qwen-plus/turbo/flash 支持 16384 tokens，但 qwen-max 仅支持 8192 tokens
 
 ## 🧠 智能推断系统
 

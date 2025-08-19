@@ -1104,9 +1104,8 @@ def _show_provider_config(provider: str, config: ProviderConfig, verbose: bool) 
     table.add_row("📡", "Stream:", f"[{stream_color}]{config.stream}[/{stream_color}]")
     table.add_row("⚡", "Workers:", f"[yellow]{config.workers}[/yellow]")
     
-    # Show max tokens configuration
-    max_tokens = int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))
-    table.add_row("📝", "Max Tokens:", f"[cyan]{max_tokens}[/cyan]")
+    # Show max tokens configuration (from provider config)
+    table.add_row("📝", "Max Tokens:", f"[cyan]{config.max_tokens}[/cyan]")
     
     if verbose:
         # Detailed parameters

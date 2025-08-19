@@ -17,6 +17,7 @@ class ProviderConfig(BaseModel):
     stream: bool = Field(True, description="Whether to stream responses")
     workers: int = Field(1, description="Maximum concurrent workers")
     use_structured_output: bool = Field(True, description="Use structured output format for JSON responses")
+    max_tokens: int = Field(8192, description="Maximum tokens for completion")
     
     class Config:
         extra = "allow"  # Allow additional provider-specific fields

@@ -15,7 +15,10 @@ from casecraft.core.providers.exceptions import (
     ProviderError, ProviderEmptyResponseError, ProviderInvalidFormatError,
     ProviderTimeoutError, ProviderAuthError, ProviderQuotaError, ProviderRateLimitError
 )
-from casecraft.utils.constants import HTTP_RATE_LIMIT
+from casecraft.utils.constants import (
+    HTTP_RATE_LIMIT, PROGRESS_MAX_NO_STREAM, PROGRESS_MAX_WITH_STREAM,
+    PROGRESS_COMPLETION_BONUS, PROGRESS_RETRY_PENALTY, PROGRESS_MIN_AFTER_PENALTY
+)
 
 
 class LLMResponse:
@@ -178,10 +181,10 @@ class LLMProvider(ABC):
         # Set maximum progress based on mode
         if is_streaming:
             # Streaming mode: higher ceiling since we get real-time progress
-            max_progress = 0.92 - retry_penalty
+            max_progress = PROGRESS_MAX_WITH_STREAM - retry_penalty
         else:
             # Non-streaming mode: slightly lower ceiling
-            max_progress = 0.90 - retry_penalty
+            max_progress = PROGRESS_MAX_NO_STREAM - retry_penalty
         
         # Content length bonus (up to +3%)
         if content_length > 0:
@@ -190,9 +193,9 @@ class LLMProvider(ABC):
             content_bonus = min(content_length / 5000, 1.0) * 0.03
             max_progress += content_bonus
         
-        # Finish reason bonus (+2%)
+        # Finish reason bonus
         if has_finish_reason:
-            max_progress += 0.02
+            max_progress += PROGRESS_COMPLETION_BONUS
         
         # Ensure we never exceed 98% and respect base progress
         final_progress = min(base_progress, max_progress, 0.98)
@@ -214,11 +217,11 @@ class LLMProvider(ABC):
         """
         # Progressive rollback: more attempts = more rollback
         # Attempt 1: 20% rollback, Attempt 2: 30% rollback, Attempt 3+: 40% rollback
-        rollback_percentage = min(0.20 + (attempt - 1) * 0.10, 0.40)
+        rollback_percentage = min(0.20 + (attempt - 1) * PROGRESS_RETRY_PENALTY, 0.40)
         rollback_amount = current_progress * rollback_percentage
         
-        # Ensure minimum progress of 10%
-        rolled_back = max(current_progress - rollback_amount, 0.10)
+        # Ensure minimum progress after rollback
+        rolled_back = max(current_progress - rollback_amount, PROGRESS_MIN_AFTER_PENALTY)
         
         return rolled_back
     

@@ -79,7 +79,7 @@ class LLMClient:
             # Log request parameters
             request_params = {
                 "temperature": kwargs.get("temperature", self.provider.config.temperature if hasattr(self.provider, 'config') else 0.7),
-                "max_tokens": kwargs.get("max_tokens", getattr(self.provider.config, 'max_tokens', 8192) if hasattr(self.provider, 'config') else 8192),
+                "max_tokens": kwargs.get("max_tokens", self.provider.config.max_tokens if hasattr(self.provider, 'config') else 8192),
                 "stream": getattr(self.provider.config, 'stream', False) if hasattr(self.provider, 'config') else False
             }
             self.logger.file_only(f"Request params: temperature={request_params['temperature']}, "

@@ -11,6 +11,7 @@ import yaml
 from jsonschema import validate, ValidationError as JsonSchemaValidationError
 
 from casecraft.models.api_spec import APIEndpoint, APIParameter, APISpecification
+from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
 
 
 class APIParseError(Exception):
@@ -21,13 +22,13 @@ class APIParseError(Exception):
 class APIParser:
     """Parses OpenAPI/Swagger API documentation."""
     
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: Optional[int] = None):
         """Initialize API parser.
         
         Args:
-            timeout: HTTP request timeout in seconds
+            timeout: HTTP request timeout in seconds (defaults to constant value)
         """
-        self.timeout = timeout
+        self.timeout = timeout or DEFAULT_API_PARSE_TIMEOUT
         self._openapi_v3_schema = None
         self._swagger_v2_schema = None
     

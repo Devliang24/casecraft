@@ -17,11 +17,12 @@ from casecraft.core.generation.test_generator import TestCaseGenerator, TestGene
 from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.config import CaseCraftConfig
 from casecraft.models.test_case import TestCaseCollection
-from casecraft.models.usage import TokenUsage, TokenStatistics, CostCalculator, RetryTracker
+from casecraft.models.usage import TokenUsage, TokenStatistics, RetryTracker
 from casecraft.utils.logging import CaseCraftLogger, LoggingContext
 from casecraft.utils.exceptions import ErrorHandler, ErrorContext, convert_exception_to_casecraft_error
 from casecraft.utils.concurrency import ConcurrencyController
 from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
+from casecraft.utils.ui import UI
 
 
 class GeneratorError(Exception):
@@ -295,7 +296,7 @@ class GeneratorEngine:
                 
                 if not to_generate:
                     if not self.quiet:
-                        self.console.print("[green]✨ All endpoints are up to date, no regeneration needed![/green]")
+                        self.console.print(UI.sparkles(UI.success("All endpoints are up to date, no regeneration needed!", icon=False)))
                     # All endpoints up to date is considered success
                     logging_context.set_success(True)
                     return result
@@ -580,13 +581,24 @@ class GeneratorEngine:
             else:
                 self.logger.file_only("No token usage data available from generation_result", level="WARNING")
             
-            # Show detailed progress with token usage
+            # Show detailed progress with token usage and retry info
             if generation_result.token_usage:
                 # Show raw token count
                 tokens = generation_result.token_usage.total_tokens
-                token_info = f" ({tokens} tokens)"
+                retry_count = generation_result.token_usage.retry_count if hasattr(generation_result.token_usage, 'retry_count') else 0
+                
+                # Build info string with retries if applicable
+                if retry_count > 0:
+                    token_info = f" ({tokens} tokens, {retry_count + 1} attempts)"
+                else:
+                    token_info = f" ({tokens} tokens)"
             else:
-                token_info = ""
+                # Check if we have retry info from generation_result directly
+                retry_count = generation_result.retry_count if hasattr(generation_result, 'retry_count') else 0
+                if retry_count > 0:
+                    token_info = f" ({retry_count + 1} attempts)"
+                else:
+                    token_info = ""
             
             # Brief success log with friendly formatting
             self.console.print(f"  [green]✓[/green] Generated [bold]{len(collection.test_cases)}[/bold] test cases - {endpoint_id} [dim]{token_info}[/dim]")
@@ -635,7 +647,7 @@ class GeneratorEngine:
                 )
             
             # Then show error messages
-            self.console.print(f"  [red]✗[/red] Generation failed - {endpoint_id}")
+            self.console.print(f"  {UI.error('Generation failed', icon=True)} - {endpoint_id}")
             
             # Check if this is a friendly ProviderError
             if isinstance(e, ProviderError):
@@ -685,7 +697,7 @@ class GeneratorEngine:
                 )
             
             # Then show error messages
-            self.console.print(f"  [red]✗[/red] Unexpected error - {endpoint_id}")
+            self.console.print(f"  {UI.error('Unexpected error', icon=True)} - {endpoint_id}")
             
             # Show detailed error in verbose mode, truncated otherwise
             if self.verbose:

@@ -62,19 +62,6 @@ class FallbackEvent(BaseModel):
     success: bool = Field(..., description="Whether fallback succeeded")
 
 
-class CostEstimate(BaseModel):
-    """Cost estimation for provider usage."""
-    
-    provider: str = Field(..., description="Provider name")
-    tokens_used: int = Field(default=0, description="Total tokens consumed")
-    estimated_cost: float = Field(default=0.0, description="Estimated cost in USD")
-    cost_per_1k_tokens: float = Field(default=0.0, description="Cost per 1000 tokens")
-    
-    def calculate_cost(self) -> float:
-        """Calculate cost based on tokens and rate."""
-        if self.cost_per_1k_tokens > 0:
-            self.estimated_cost = (self.tokens_used / 1000) * self.cost_per_1k_tokens
-        return self.estimated_cost
 
 
 class ProviderStatistics(BaseModel):
@@ -88,10 +75,6 @@ class ProviderStatistics(BaseModel):
         default_factory=list,
         description="History of fallback events"
     )
-    cost_estimates: Dict[str, CostEstimate] = Field(
-        default_factory=dict,
-        description="Cost estimates by provider"
-    )
     provider_preferences: Dict[str, float] = Field(
         default_factory=dict,
         description="Provider preference scores (0-1)"
@@ -103,10 +86,6 @@ class ProviderStatistics(BaseModel):
             self.performance[provider] = ProviderPerformance()
         self.performance[provider].update_success(tokens, time_seconds)
         
-        # Update cost estimate
-        if provider not in self.cost_estimates:
-            self.cost_estimates[provider] = CostEstimate(provider=provider)
-        self.cost_estimates[provider].tokens_used += tokens
     
     def update_provider_failure(self, provider: str, error_type: str, time_seconds: float) -> None:
         """Update metrics for failed provider request."""
@@ -147,27 +126,3 @@ class ProviderStatistics(BaseModel):
         
         return sorted(scores, key=lambda x: x[1], reverse=True)
     
-    def get_cost_summary(self) -> Dict[str, any]:
-        """Get cost summary across all providers."""
-        total_cost = sum(est.calculate_cost() for est in self.cost_estimates.values())
-        total_tokens = sum(est.tokens_used for est in self.cost_estimates.values())
-        
-        return {
-            "total_cost_usd": total_cost,
-            "total_tokens": total_tokens,
-            "by_provider": {
-                provider: {
-                    "tokens": est.tokens_used,
-                    "cost": est.estimated_cost
-                }
-                for provider, est in self.cost_estimates.items()
-            }
-        }
-
-
-# Cost rates for known providers (per 1000 tokens)
-DEFAULT_COST_RATES = {
-    "glm": {"input": 0.001, "output": 0.002},  # Example rates
-    "qwen": {"input": 0.0008, "output": 0.0016},
-    "local": {"input": 0.0, "output": 0.0},  # Free for local
-}

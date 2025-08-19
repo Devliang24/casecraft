@@ -18,7 +18,7 @@ from casecraft.models.test_case import TestCaseCollection
 from casecraft.models.usage import TokenUsage
 from casecraft.core.generation.test_generator import TestCaseGenerator
 from casecraft.utils.logging import get_logger
-from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS
+from casecraft.utils.constants import HTTP_RATE_LIMIT, HTTP_SERVER_ERRORS, PROVIDER_BASE_URLS, PROVIDER_MAX_WORKERS
 
 
 class QwenProvider(LLMProvider):
@@ -36,13 +36,17 @@ class QwenProvider(LLMProvider):
         # DashScope API endpoint - use configured or default
         self.base_url = config.base_url
         if not self.base_url:
-            # Use default if not configured
-            self.base_url = "https://dashscope.aliyuncs.com/api/v1"
+            # Use default from constants
+            self.base_url = PROVIDER_BASE_URLS.get('qwen')
             self.logger.info(f"Using default base URL: {self.base_url}")
         self.logger = get_logger(f"provider.{self.name}")
         
-        # Configure concurrent requests from environment
-        max_workers = int(os.getenv("CASECRAFT_QWEN_MAX_WORKERS", "3"))
+        # Configure concurrent requests from constants
+        max_workers = PROVIDER_MAX_WORKERS.get('qwen', 3)
+        # Allow environment override
+        env_workers = os.getenv("CASECRAFT_QWEN_MAX_WORKERS")
+        if env_workers:
+            max_workers = int(env_workers)
         self._semaphore = asyncio.Semaphore(min(config.workers, max_workers))
         
         self.client = httpx.AsyncClient(
@@ -91,7 +95,7 @@ class QwenProvider(LLMProvider):
                 "messages": messages,  # Direct messages, not nested in input
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
-                "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
+                "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
                 "stream": self.config.stream
             }
             

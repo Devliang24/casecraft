@@ -205,7 +205,9 @@ class ConfigManager:
             'stream': os.getenv(f"CASECRAFT_{provider_upper}_STREAM",
                                os.getenv("CASECRAFT_LLM_STREAM", "true")).lower() == "true",
             'workers': workers,  # Use CLI value directly
-            'use_structured_output': True  # Default value
+            'use_structured_output': True,  # Default value
+            'max_tokens': int(os.getenv(f"CASECRAFT_{provider_upper}_MAX_TOKENS",
+                                       os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")))
         }
         
         # Validate required configuration

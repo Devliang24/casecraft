@@ -15,9 +15,7 @@ from casecraft.models.api_spec import APIEndpoint, APISpecification
 from casecraft.models.state import CaseCraftState, EndpointState, ProjectConfig, ProcessingStatistics
 from casecraft.models.provider_state import (
     ProviderStatistics, 
-    FallbackEvent,
-    CostEstimate,
-    DEFAULT_COST_RATES
+    FallbackEvent
 )
 from casecraft.core.management.state_manager import StateManager, StateError
 
@@ -52,13 +50,6 @@ class EnhancedStateManager(StateManager):
             self.provider_stats = ProviderStatistics()
             state.provider_stats = self.provider_stats
         
-        # Initialize cost rates for known providers
-        for provider, rates in DEFAULT_COST_RATES.items():
-            if provider not in self.provider_stats.cost_estimates:
-                self.provider_stats.cost_estimates[provider] = CostEstimate(
-                    provider=provider,
-                    cost_per_1k_tokens=(rates["input"] + rates["output"]) / 2
-                )
         
         return state
     
@@ -177,8 +168,6 @@ class EnhancedStateManager(StateManager):
                 "total_tokens": perf.total_tokens
             }
         
-        # Add cost summary (using simple estimates from provider stats)
-        cost_summary = self.provider_stats.get_cost_summary()
         
         # Add fallback statistics
         fallback_summary = {
@@ -191,7 +180,6 @@ class EnhancedStateManager(StateManager):
         return {
             "generation": base_stats,
             "providers": provider_summary,
-            "costs": cost_summary,
             "fallbacks": fallback_summary,
             "recommendations": self.get_provider_recommendations()[:3]  # Top 3
         }

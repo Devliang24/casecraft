@@ -128,7 +128,7 @@ class LocalProvider(LLMProvider):
             "options": {
                 "temperature": kwargs.get("temperature", self.config.temperature),
                 "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "0.9"))),
-                "num_predict": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192")))
+                "num_predict": kwargs.get("max_tokens", self.config.max_tokens)
             }
         }
         
@@ -308,7 +308,7 @@ class LocalProvider(LLMProvider):
             "messages": messages,
             "temperature": kwargs.get("temperature", self.config.temperature),
             "top_p": kwargs.get("top_p", float(os.getenv("CASECRAFT_DEFAULT_TOP_P", "1.0"))),
-            "max_tokens": kwargs.get("max_tokens", int(os.getenv("CASECRAFT_DEFAULT_MAX_TOKENS", "8192"))),
+            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
             "stream": self.config.stream
         }
         

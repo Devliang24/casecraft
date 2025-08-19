@@ -30,6 +30,7 @@ class GenerationResult:
     
     test_cases: TestCaseCollection
     token_usage: Optional[TokenUsage] = None
+    retry_count: int = 0  # Number of retries performed
 
 
 class TestCaseGenerator:
@@ -95,7 +96,9 @@ class TestCaseGenerator:
             try:
                 # Build prompt - use enhanced version for retries
                 if attempt > 0 and last_error:
-                    self.logger.file_only(f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint_id}", level="INFO")
+                    # Log retry attempt
+                    retry_msg = f"Retry attempt {attempt + 1}/{max_attempts} for {endpoint_id}"
+                    self.logger.info(retry_msg)
                     prompt = self._build_prompt_with_retry_hints(endpoint, last_error, attempt)
                     system_prompt = self._get_system_prompt_with_retry_emphasis()
                 else:
@@ -196,7 +199,7 @@ class TestCaseGenerator:
                     token_usage = TokenUsage(
                         prompt_tokens=response.usage.get("prompt_tokens", 0) if response.usage else 0,
                         completion_tokens=response.usage.get("completion_tokens", 0) if response.usage else 0,
-                        total_tokens=total_tokens_used if total_tokens_used > 0 else response.usage.get("total_tokens", 0) if response.usage else 0,
+                        total_tokens=response.usage.get("total_tokens", 0) if response.usage else 0,
                         model=response.model,
                         endpoint_id=endpoint.get_endpoint_id(),
                         retry_count=attempt  # Record actual attempts made
@@ -218,22 +221,27 @@ class TestCaseGenerator:
                 
                 return GenerationResult(
                     test_cases=collection,
+                    retry_count=attempt,  # Add retry count to result
                     token_usage=token_usage
                 )
                 
             except (TestGeneratorError, ValidationError, json.JSONDecodeError) as e:
                 last_error = str(e)
-                self.logger.file_only(f"Attempt {attempt + 1} failed for {endpoint.get_endpoint_id()}: {e}", level="WARNING")
+                self.logger.warning(f"Attempt {attempt + 1} failed for {endpoint.get_endpoint_id()}: {e}")
                 
                 # Check if we should retry
                 if self._should_retry(e) and attempt < max_attempts - 1:
-                    self.logger.file_only(f"Will retry with enhanced prompt for {endpoint.get_endpoint_id()}", level="INFO")
+                    self.logger.info(f"Will retry with enhanced prompt for {endpoint.get_endpoint_id()}")
                     await asyncio.sleep(2)  # Brief delay before retry
                     continue
                 else:
                     # Final failure - create error with retry statistics
                     error_msg = f"Failed to generate test cases for {endpoint.get_endpoint_id()} after {attempt + 1} attempts: {e}"
-                    self.logger.error(error_msg)
+                    # Only log as error if it's the final failure after all retries
+                    if attempt == max_attempts - 1:
+                        self.logger.error(error_msg)
+                    else:
+                        self.logger.warning(error_msg)
                     
                     # Import here to avoid circular imports
                     from casecraft.core.providers.exceptions import ProviderError
@@ -737,7 +745,7 @@ Return the test cases as a JSON array:"""
             self.logger.file_only(f"Successfully parsed JSON, type: {type(test_data).__name__}", level="DEBUG")
         except json.JSONDecodeError as e:
             # Log the problematic content for debugging
-            self.logger.error(f"Failed to parse JSON: {str(e)[:100]}")
+            self.logger.warning(f"Failed to parse JSON (will retry): {str(e)[:100]}")
             self.logger.debug(f"Raw content: {response_content[:500]}...")
             raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
         
@@ -905,7 +913,8 @@ Return the test cases as a JSON array:"""
                 raise TestGeneratorError(f"At least 5 test cases required, got {total_count}")
         
         # Log test case distribution with complexity info
-        self.logger.file_only(f"Generated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary", level="INFO")
+        # Note: This log is for validation only, actual generation success is logged in generate_test_cases method
+        self.logger.file_only(f"Validated {total_count} test cases for {complexity['complexity_level']} endpoint ({endpoint.method} {endpoint.path}): {positive_count} positive, {negative_count} negative, {boundary_count} boundary", level="DEBUG")
         
         # Validate that each test case has required fields
         for i, test_case in enumerate(test_cases):
