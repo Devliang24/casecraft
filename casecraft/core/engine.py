@@ -168,7 +168,8 @@ class GeneratorEngine:
     """Main engine for coordinating test case generation."""
     
     def __init__(self, config: CaseCraftConfig, console: Optional[Console] = None, 
-                 verbose: bool = False, quiet: bool = False, provider_instance: Optional[Any] = None):
+                 verbose: bool = False, quiet: bool = False, provider_instance: Optional[Any] = None,
+                 config_path: Optional[str] = None):
         """Initialize generator engine.
         
         Args:
@@ -177,11 +178,13 @@ class GeneratorEngine:
             verbose: Enable verbose output
             quiet: Enable quiet mode (warnings/errors only)
             provider_instance: Provider instance for LLM operations
+            config_path: Optional path to custom configuration file for templates
         """
         self.config = config
         self.console = console or Console()
         self.verbose = verbose
         self.quiet = quiet
+        self.config_path = config_path
         self.provider_instance = provider_instance
         
         # Initialize logging and error handling
@@ -212,7 +215,10 @@ class GeneratorEngine:
         include_methods: Optional[List[str]] = None,
         exclude_methods: Optional[List[str]] = None,
         force: bool = False,
-        dry_run: bool = False
+        dry_run: bool = False,
+        format: str = "json",
+        priority: str = "all",
+        merge_excel: bool = False
     ) -> GenerationResult:
         """Generate test cases from API documentation.
         
@@ -226,6 +232,9 @@ class GeneratorEngine:
             exclude_methods: HTTP methods to exclude
             force: Force regenerate all endpoints
             dry_run: Preview mode without LLM calls
+            format: Output format (json, excel, compact, pretty)
+            priority: Filter by priority (P0, P1, P2, all)
+            merge_excel: Merge all endpoints into one Excel file
             
         Returns:
             Generation result
@@ -235,6 +244,11 @@ class GeneratorEngine:
         """
         start_time = time.time()
         result = GenerationResult()
+        
+        # Store format and priority for use in save methods
+        self.output_format = format
+        self.priority_filter = priority
+        self.merge_excel = merge_excel
         
         logging_context = LoggingContext(self.logger, "test_case_generation", source=source)
         with logging_context as op_logger:
@@ -436,7 +450,7 @@ class GeneratorEngine:
                 self.logger.error(f"Provider instance is None. self.provider_instance={self.provider_instance}")
                 raise GeneratorError("Provider instance is required")
                 
-            self._test_generator = TestCaseGenerator(self._llm_client, api_version, console=self.console)
+            self._test_generator = TestCaseGenerator(self._llm_client, api_version, console=self.console, config_path=self.config_path)
             
         except Exception as e:
             raise GeneratorError(f"Failed to initialize LLM components: {e}") from e
@@ -606,19 +620,25 @@ class GeneratorEngine:
             # Save to file
             output_file = await self._save_test_cases(collection)
             
-            # Log file write completion
-            self.console.print(f"  [blue]📝[/blue] Written to file: [cyan]{output_file.name}[/cyan]")
-            
-            # Update state
-            await self.state_manager.mark_endpoint_generated(
-                endpoint,
-                len(collection.test_cases),
-                str(output_file)
-            )
-            
-            result.generated_count += 1
-            result.add_test_cases(len(collection.test_cases))
-            result.generated_files.append(str(output_file))
+            # Check if file was actually saved (might be filtered out)
+            if output_file:
+                # Log file write completion
+                self.console.print(f"  [blue]📝[/blue] Written to file: [cyan]{output_file.name}[/cyan]")
+                
+                # Update state
+                await self.state_manager.mark_endpoint_generated(
+                    endpoint,
+                    len(collection.test_cases),
+                    str(output_file)
+                )
+                
+                result.generated_count += 1
+                result.add_test_cases(len(collection.test_cases))
+                result.generated_files.append(str(output_file))
+            else:
+                # Filtered out by priority
+                self.logger.file_only(f"Endpoint {endpoint.endpoint_id} filtered out by priority filter")
+                result.skipped_count += 1
             
             # Final update to mark this endpoint as complete
             # Use actual completion count instead of endpoint_index for concurrent execution
@@ -715,6 +735,34 @@ class GeneratorEngine:
                 error_msg = str(e)
                 self.console.print(f"    [dim red]Error: {error_msg}[/dim red]", soft_wrap=True)
     
+    def _filter_by_priority(self, collection: TestCaseCollection, priority: str) -> TestCaseCollection:
+        """Filter test cases by priority.
+        
+        Args:
+            collection: Test case collection
+            priority: Priority filter (P0, P1, P2)
+            
+        Returns:
+            Filtered collection
+        """
+        from casecraft.models.test_case import TestCaseCollection
+        
+        filtered_cases = [
+            tc for tc in collection.test_cases 
+            if hasattr(tc, 'priority') and tc.priority == priority
+        ]
+        
+        # Create new collection with filtered cases
+        return TestCaseCollection(
+            endpoint_id=collection.endpoint_id,
+            method=collection.method,
+            path=collection.path,
+            summary=collection.summary,
+            description=collection.description,
+            test_cases=filtered_cases,
+            metadata=collection.metadata
+        )
+    
     async def _save_test_cases(self, collection: TestCaseCollection) -> Path:
         """Save test case collection to file.
         
@@ -724,6 +772,14 @@ class GeneratorEngine:
         Returns:
             Path to saved file
         """
+        # Apply priority filter if needed
+        if hasattr(self, 'priority_filter') and self.priority_filter != 'all':
+            collection = self._filter_by_priority(collection, self.priority_filter)
+            if not collection.test_cases:
+                # Skip if no test cases match the priority filter
+                self.logger.file_only(f"No test cases match priority filter: {self.priority_filter}")
+                return None
+        
         # Create output directory
         output_dir = Path(self.config.output.directory)
         
@@ -742,12 +798,41 @@ class GeneratorEngine:
         # Log save operation
         self.logger.file_only(f"💾 Saving {len(collection.test_cases)} test cases to: {output_file}")
         
-        # Save JSON
-        json_content = collection.model_dump_json(indent=2)
-        output_file.write_text(json_content, encoding='utf-8')
+        # Determine format and save accordingly
+        format = getattr(self, 'output_format', 'json')
+        
+        if format == 'excel':
+            # Save as Excel
+            from casecraft.config.template_manager import TemplateManager
+            from casecraft.utils.formatters import get_formatter
+            
+            template_manager = TemplateManager(self.config_path)
+            formatter = get_formatter('excel', template_manager)
+            content = formatter.format(collection)
+            
+            # Change extension to .xlsx
+            output_file = output_file.with_suffix('.xlsx')
+            
+            # Write binary content
+            with open(output_file, 'wb') as f:
+                f.write(content)
+            
+            file_size = len(content)
+        else:
+            # Save as JSON (default or other text formats)
+            from casecraft.utils.formatters import get_formatter
+            
+            formatter = get_formatter(format) if format != 'json' else None
+            
+            if formatter:
+                content = formatter.format(collection)
+            else:
+                content = collection.model_dump_json(indent=2)
+            
+            output_file.write_text(content, encoding='utf-8')
+            file_size = len(content.encode('utf-8'))
         
         # Log file size
-        file_size = len(json_content.encode('utf-8'))
         self.logger.file_only(f"File saved successfully ({file_size:,} bytes)", level="DEBUG")
         
         return output_file

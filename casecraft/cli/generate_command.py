@@ -102,16 +102,16 @@ async def generate_command(
             force=force,
             dry_run=dry_run,
             organize_by=organize_by,
-            format=format,
-            config=config,
-            merge_excel=merge_excel,
-            priority=priority,
             verbose=verbose,
             quiet=quiet,
             provider=provider or os.getenv("CASECRAFT_PROVIDER") or default_provider,
             providers=providers or os.getenv("CASECRAFT_PROVIDERS"),
             provider_map=provider_map,
             strategy=strategy,
+            format=format,
+            config=config,
+            merge_excel=merge_excel,
+            priority=priority,
             model=model
         )
     
@@ -555,16 +555,16 @@ async def _generate_with_providers(
     force: bool,
     dry_run: bool,
     organize_by: Optional[str],
-    format: str = "json",
-    config: Optional[str] = None,
-    merge_excel: bool = False,
-    priority: str = "all",
     verbose: bool,
     quiet: bool,
     provider: Optional[str],
     providers: Optional[str],
     provider_map: Optional[str],
     strategy: str,
+    format: str = "json",
+    config: Optional[str] = None,
+    merge_excel: bool = False,
+    priority: str = "all",
     model: Optional[str] = None
 ) -> None:
     """Generate test cases with multi-provider support."""
