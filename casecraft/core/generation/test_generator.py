@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import asyncio
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
@@ -723,6 +724,149 @@ Return the test cases as a JSON array:"""
         
         return prompt
     
+    def _parse_multiple_json_objects(self, content: str) -> List[Dict[str, Any]]:
+        """Parse multiple independent JSON objects from a string.
+        
+        This method handles cases where LLM providers (like DeepSeek) return
+        multiple JSON objects instead of a single JSON array. Uses intelligent
+        JSON boundary detection that properly handles nested structures.
+        
+        Args:
+            content: Raw content containing multiple JSON objects
+            
+        Returns:
+            List of parsed JSON objects
+            
+        Raises:
+            TestGeneratorError: If no valid JSON objects found
+        """
+        self.logger.file_only("Attempting to parse multiple JSON objects (DeepSeek format)", level="INFO")
+        
+        parsed_objects = []
+        
+        # Use character-by-character scanning for accurate JSON boundary detection
+        i = 0
+        content_len = len(content)
+        object_count = 0
+        
+        while i < content_len:
+            # Skip whitespace and find next '{'
+            while i < content_len and content[i].isspace():
+                i += 1
+            
+            if i >= content_len or content[i] != '{':
+                i += 1
+                continue
+            
+            # Found start of potential JSON object
+            start_pos = i
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            current_quote = None
+            
+            # Scan character by character to find the end of this JSON object
+            while i < content_len:
+                char = content[i]
+                
+                if escape_next:
+                    # Skip escaped characters
+                    escape_next = False
+                elif char == '\\' and in_string:
+                    # Next character is escaped
+                    escape_next = True
+                elif char in ('"', "'") and not in_string:
+                    # Start of string
+                    in_string = True
+                    current_quote = char
+                elif char == current_quote and in_string:
+                    # End of string
+                    in_string = False
+                    current_quote = None
+                elif not in_string:
+                    # Only count braces outside of strings
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        
+                        # When braces balance, we found a complete object
+                        if brace_count == 0:
+                            json_str = content[start_pos:i + 1]
+                            object_count += 1
+                            
+                            try:
+                                obj = json.loads(json_str)
+                                if isinstance(obj, dict):
+                                    # Validate that it looks like a test case
+                                    test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description']
+                                    if any(indicator in obj for indicator in test_indicators):
+                                        parsed_objects.append(obj)
+                                        self.logger.file_only(f"Successfully parsed JSON object {object_count}: {obj.get('name', 'unnamed')}", level="DEBUG")
+                                    else:
+                                        self.logger.file_only(f"Skipped object {object_count}: doesn't look like a test case (keys: {list(obj.keys())[:5]})", level="DEBUG")
+                                else:
+                                    self.logger.file_only(f"Skipped object {object_count}: not a dict but {type(obj).__name__}", level="DEBUG")
+                            except json.JSONDecodeError as e:
+                                self.logger.file_only(f"Failed to parse JSON object {object_count}: {str(e)[:100]}", level="DEBUG")
+                                # Save problematic JSON for debugging
+                                if len(json_str) < 1000:  # Only log short strings
+                                    self.logger.file_only(f"Problematic JSON: {json_str[:200]}...", level="DEBUG")
+                            
+                            # Move past this object and continue searching
+                            i += 1
+                            break
+                
+                i += 1
+            
+            # If we reached end of content with unbalanced braces, skip this object
+            if brace_count != 0:
+                self.logger.file_only(f"Object {object_count} has unbalanced braces (count: {brace_count}), skipping", level="DEBUG")
+                break
+        
+        if not parsed_objects:
+            self.logger.file_only(f"No valid test case objects found among {object_count} JSON objects detected", level="WARNING")
+            
+            # Fallback: try the simple line-by-line approach for edge cases
+            self.logger.file_only("Attempting fallback line-by-line parsing", level="DEBUG")
+            
+            lines = content.strip().split('\n')
+            current_object = ""
+            brace_count = 0
+            
+            for line_num, line in enumerate(lines):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                current_object += line + "\n"
+                
+                # Simple brace counting (may miss string contents but worth trying)
+                brace_count += line.count('{') - line.count('}')
+                
+                # When braces balance, try to parse
+                if brace_count == 0 and current_object.strip():
+                    try:
+                        obj = json.loads(current_object.strip())
+                        if isinstance(obj, dict):
+                            test_indicators = ['test_id', 'id', 'method', 'path', 'name', 'description']
+                            if any(indicator in obj for indicator in test_indicators):
+                                parsed_objects.append(obj)
+                                self.logger.file_only(f"Fallback parsed object at line {line_num}: {obj.get('name', 'unnamed')}", level="DEBUG")
+                        current_object = ""
+                        brace_count = 0
+                    except json.JSONDecodeError:
+                        # Reset and continue
+                        current_object = ""
+                        brace_count = 0
+                        continue
+        
+        if not parsed_objects:
+            raise TestGeneratorError(f"Could not parse any valid JSON test case objects from response ({object_count} objects detected)")
+        
+        self.logger.file_only(f"Successfully parsed {len(parsed_objects)} test case objects from DeepSeek-style response (out of {object_count} total objects)", level="INFO")
+        return parsed_objects
+    
     def _parse_llm_response(self, response_content: str, endpoint: APIEndpoint) -> List[TestCase]:
         """Parse and validate LLM response.
         
@@ -744,10 +888,25 @@ Return the test cases as a JSON array:"""
             test_data = json.loads(response_content)
             self.logger.file_only(f"Successfully parsed JSON, type: {type(test_data).__name__}", level="DEBUG")
         except json.JSONDecodeError as e:
-            # Log the problematic content for debugging
-            self.logger.warning(f"Failed to parse JSON (will retry): {str(e)[:100]}")
-            self.logger.debug(f"Raw content: {response_content[:500]}...")
-            raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
+            # Check if this is a DeepSeek-style "Extra data" error
+            if "Extra data" in str(e):
+                self.logger.file_only(f"Detected DeepSeek-style multiple JSON objects: {str(e)[:100]}", level="INFO")
+                try:
+                    # Try to parse multiple JSON objects
+                    parsed_objects = self._parse_multiple_json_objects(response_content)
+                    test_data = parsed_objects
+                    self.logger.file_only(f"Successfully recovered from DeepSeek format, got {len(test_data)} objects", level="INFO")
+                except Exception as parse_error:
+                    # If multiple object parsing also fails, fall back to original error
+                    self.logger.warning(f"DeepSeek format parsing also failed: {parse_error}")
+                    self.logger.warning(f"Original JSON error: {str(e)[:100]}")
+                    self.logger.debug(f"Raw content: {response_content[:500]}...")
+                    raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
+            else:
+                # Log the problematic content for debugging
+                self.logger.warning(f"Failed to parse JSON (will retry): {str(e)[:100]}")
+                self.logger.debug(f"Raw content: {response_content[:500]}...")
+                raise TestGeneratorError(f"Invalid JSON in LLM response: {e}")
         
         if not isinstance(test_data, list):
             # Special handling for non-array responses
