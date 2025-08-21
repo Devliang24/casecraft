@@ -581,7 +581,8 @@ async def _generate_with_providers(
             await _run_single_provider(
                 source, output, include_tag, exclude_tag, include_path,
                 include_method, exclude_method,
-                workers, force, dry_run, organize_by, verbose, quiet, provider, model
+                workers, force, dry_run, organize_by, verbose, quiet, provider, model,
+                format, config, merge_excel, priority
             )
         else:
             # Multi-provider mode
@@ -653,7 +654,11 @@ async def _run_single_provider(
     verbose: bool,
     quiet: bool,
     provider: str,
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    format: str = "json",
+    config: Optional[str] = None,
+    merge_excel: bool = False,
+    priority: str = "all"
 ) -> None:
     """Run generation with a single provider - unified handling for all providers."""
     
@@ -745,7 +750,8 @@ async def _run_single_provider(
         console, 
         verbose=verbose, 
         quiet=quiet,
-        provider_instance=provider_instance
+        provider_instance=provider_instance,
+        config_path=config
     )
     
     # 10. Convert parameter formats
@@ -791,7 +797,10 @@ async def _run_single_provider(
         include_methods=include_method,
         exclude_methods=exclude_method,
         force=force,
-        dry_run=dry_run
+        dry_run=dry_run,
+        format=format,
+        priority=priority,
+        merge_excel=merge_excel
     )
     
     # 13. Update statistics

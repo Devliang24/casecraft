@@ -637,7 +637,7 @@ class GeneratorEngine:
                 result.generated_files.append(str(output_file))
             else:
                 # Filtered out by priority
-                self.logger.file_only(f"Endpoint {endpoint.endpoint_id} filtered out by priority filter")
+                self.logger.file_only(f"Endpoint {endpoint.get_endpoint_id()} filtered out by priority filter")
                 result.skipped_count += 1
             
             # Final update to mark this endpoint as complete
