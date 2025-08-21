@@ -265,13 +265,23 @@ class ExcelFormatter(OutputFormatter):
         """Format request data (params and body)."""
         parts = []
         
-        if hasattr(test_case, 'path_params') and test_case.path_params:
+        # Check what types of parameters exist
+        has_path_params = hasattr(test_case, 'path_params') and test_case.path_params
+        has_query_params = hasattr(test_case, 'query_params') and test_case.query_params
+        has_body = hasattr(test_case, 'body') and test_case.body
+        
+        # If only body exists, return it directly without prefix
+        if has_body and not has_path_params and not has_query_params:
+            return json.dumps(test_case.body, indent=2, ensure_ascii=False)
+        
+        # If multiple parameter types exist, use labels to distinguish
+        if has_path_params:
             parts.append(f"Path参数:\n{self._format_dict(test_case.path_params)}")
         
-        if hasattr(test_case, 'query_params') and test_case.query_params:
+        if has_query_params:
             parts.append(f"Query参数:\n{self._format_dict(test_case.query_params)}")
         
-        if hasattr(test_case, 'body') and test_case.body:
+        if has_body:
             parts.append(f"请求体:\n{json.dumps(test_case.body, indent=2, ensure_ascii=False)}")
         
         return "\n\n".join(parts) if parts else ""

@@ -94,7 +94,7 @@ excel:
     - header: '请求头'
       field: 'headers'
       width: 35
-    - header: '请求参数/正文'
+    - header: '请求体'
       field: 'request_data'
       width: 45
     - header: '预期状态码'
