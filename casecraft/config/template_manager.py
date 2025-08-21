@@ -41,9 +41,13 @@ class TemplateManager:
                 raise FileNotFoundError(f"Configuration file not found: {config_path}")
         
         # Fall back to default config
-        default_config = Path(__file__).parent / 'default_templates.yaml'
+        # Try project root first
+        default_config = Path.cwd() / 'default_templates.yaml'
         if not default_config.exists():
-            raise FileNotFoundError(f"Default configuration not found: {default_config}")
+            # Try package directory as fallback (for pip installed version)
+            default_config = Path(__file__).parent / 'default_templates.yaml'
+            if not default_config.exists():
+                raise FileNotFoundError(f"Default configuration not found in project root or package")
         
         with open(default_config, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
