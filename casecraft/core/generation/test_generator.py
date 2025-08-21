@@ -14,7 +14,7 @@ from casecraft.core.generation.llm_client import LLMClient, LLMError
 from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
 from casecraft.core.analysis import (
     PathAnalyzer, SmartDescriptionGenerator, CriticalityAnalyzer,
-    ModuleAnalyzer, PreconditionGenerator, PostconditionGenerator, CaseIdGenerator
+    ModuleAnalyzer, CaseIdGenerator
 )
 from casecraft.core.analysis.constants import METHOD_BASE_COUNTS, COMPLEXITY_THRESHOLDS, TEST_TYPE_RATIOS, MIN_TEST_COUNTS, MAX_TEST_COUNTS
 from casecraft.config.template_manager import TemplateManager
@@ -64,10 +64,8 @@ class TestCaseGenerator:
         self.description_generator = SmartDescriptionGenerator()
         self.criticality_analyzer = CriticalityAnalyzer()
         
-        # Initialize new analyzers
+        # Initialize analyzers (only keep the ones we still need)
         self.module_analyzer = ModuleAnalyzer(self.template_manager)
-        self.precondition_generator = PreconditionGenerator(self.template_manager)
-        self.postcondition_generator = PostconditionGenerator(self.template_manager)
         self.case_id_generator = CaseIdGenerator(self.module_analyzer)
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
@@ -129,8 +127,11 @@ class TestCaseGenerator:
                 # Check if streaming is enabled (handle both provider and legacy config modes)
                 is_streaming = False
                 if hasattr(self.llm_client, 'provider') and self.llm_client.provider:
-                    is_streaming = getattr(self.llm_client.provider.config, 'stream', False)
+                    # Provider mode
+                    if hasattr(self.llm_client.provider, 'config'):
+                        is_streaming = getattr(self.llm_client.provider.config, 'stream', False)
                 elif hasattr(self.llm_client, 'config') and self.llm_client.config:
+                    # Direct config mode
                     is_streaming = getattr(self.llm_client.config, 'stream', False)
                 
                 if is_streaming and attempt == 0:  # Only show streaming on first attempt
@@ -390,6 +391,10 @@ class TestCaseGenerator:
         if "json" in last_error.lower():
             error_hints.append("确保返回有效的JSON数组格式")
         
+        if "preconditions" in last_error.lower() or "postconditions" in last_error.lower():
+            error_hints.append("preconditions 和 postconditions 必须是字符串数组格式，如: [\"条件1\", \"条件2\"]")
+            error_hints.append("不要返回空字符串，使用空数组 [] 表示无条件")
+        
         # Parse specific count requirements from error message
         if "at least" in last_error:
             import re
@@ -633,7 +638,38 @@ Headers设置智能规则：
 - 每个测试用例必须包含完整的预期验证信息：
   * resp_headers: 响应头验证
   * resp_content: 响应内容断言
-  * rules: 业务逻辑验证规则"""
+  * rules: 业务逻辑验证规则
+
+## 📋 前置条件和后置处理生成规则（重要）
+
+### preconditions（前置条件）- 数组格式
+根据接口语义智能分析测试执行前需要的准备工作，返回字符串数组：
+
+**示例（必须根据具体接口语义生成）：**
+- POST /auth/register → ["邮箱未被注册", "密码符合强度要求"]
+- POST /orders → ["用户已登录认证", "购物车中有商品", "商品库存充足", "收货地址已设置"]
+- GET /admin/reports → ["管理员权限已验证", "报表数据已生成"]
+- PUT /users/{id} → ["目标用户存在", "修改权限已验证", "新数据格式正确"]
+- DELETE /products/{id} → ["商品存在于数据库", "商品无关联订单", "操作者有删除权限"]
+- GET /products（负向测试）→ ["数据库连接失败模拟"] 或 []
+
+### postconditions（后置处理）- 数组格式
+根据测试操作类型智能生成必要的清理和验证步骤，返回字符串数组：
+
+**示例（必须根据测试影响生成）：**
+- POST 创建测试 → ["删除创建的测试数据", "清理相关缓存"]
+- PUT 修改测试 → ["恢复原始数据", "验证数据一致性"]
+- DELETE 删除测试 → ["验证资源已被删除", "检查级联删除效果"]
+- GET 查询测试 → [] 或 ["清理查询缓存"]
+- 负向测试 → ["确认数据未被修改", "验证错误日志已记录"]
+- 订单相关 → ["删除测试订单", "恢复商品库存", "清空购物车"]
+
+**生成原则：**
+1. 根据接口语义而非模板生成
+2. 考虑业务逻辑和数据关联
+3. 正向测试需要更多清理步骤
+4. 负向测试主要验证无副作用
+5. 每个条件独立成一个数组元素"""
     
     def _build_prompt(self, endpoint: APIEndpoint) -> str:
         """Build prompt for test case generation.
@@ -709,6 +745,21 @@ Headers设置智能规则：
 **Headers建议 (智能分析结果):**
 - 正向测试建议headers: {json.dumps(headers_scenarios.get('positive', {}), indent=2)}
 - 负向测试场景: {list(headers_scenarios.keys())}
+
+**前置条件和后置处理要求:**
+请根据接口的业务语义，为每个测试用例智能生成：
+
+1. **preconditions（前置条件）** - 字符串数组格式
+   - 分析接口操作需要满足的前置条件
+   - 根据不同测试类型生成不同条件
+   - 示例：DELETE /orders/{id} 的正向测试 → ["订单存在", "订单状态允许删除", "用户有删除权限"]
+   - 示例：POST /products 的负向测试 → ["用户未登录"] 或 ["商品名称已存在"]
+
+2. **postconditions（后置处理）** - 字符串数组格式
+   - 根据测试影响生成清理步骤
+   - 正向测试通常需要清理创建的数据
+   - 负向测试主要验证无副作用
+   - 示例：POST /users 成功测试 → ["删除创建的测试用户", "清理用户相关数据"]
 
 **完整的测试用例验证要求:**
 1. **状态码验证**: 准确的HTTP状态码期望
@@ -1244,24 +1295,13 @@ Return the test cases as a JSON array:"""
             # Set priority based on criticality and test type
             test_case.priority = self.criticality_analyzer.get_priority(endpoint, test_case.test_type)
             
-            # Generate preconditions
-            auto_preconditions = self.precondition_generator.generate(endpoint, test_case.test_type)
-            # Merge with any existing preconditions from LLM
-            if hasattr(test_case, 'preconditions') and test_case.preconditions:
-                # Combine and deduplicate
-                combined = auto_preconditions + test_case.preconditions
-                seen = set()
-                unique_preconditions = []
-                for condition in combined:
-                    if condition not in seen:
-                        seen.add(condition)
-                        unique_preconditions.append(condition)
-                test_case.preconditions = unique_preconditions
-            else:
-                test_case.preconditions = auto_preconditions
+            # Preconditions and postconditions should be generated by LLM
+            # If LLM didn't generate them, set empty arrays as defaults
+            if not hasattr(test_case, 'preconditions') or test_case.preconditions is None:
+                test_case.preconditions = []
             
-            # Generate postconditions
-            test_case.postconditions = self.postcondition_generator.generate(endpoint, test_case.test_type)
+            if not hasattr(test_case, 'postconditions') or test_case.postconditions is None:
+                test_case.postconditions = []
             
             status_str = str(test_case.status)
             

@@ -65,31 +65,6 @@ priorities:
       priority: 'P2'
   default: 'P2'
 
-templates:
-  preconditions:
-    auth_token: "用户已登录并获取有效的Bearer Token"
-    api_key: "已配置有效的API Key"
-    resource_exists: "数据库中存在测试{resource}"
-    resource_updatable: "待更新的资源存在且状态正常"
-    resource_deletable: "待删除的资源存在且无关联依赖"
-    cart_has_items: "购物车中有商品"
-    stock_sufficient: "商品库存充足"
-  
-  postconditions:
-    delete_order: "删除测试创建的订单"
-    restore_stock: "恢复商品库存"
-    delete_user: "删除测试创建的用户账号"
-    delete_product: "删除测试创建的商品"
-    clear_cart: "清空测试购物车"
-    delete_generic: "删除测试创建的数据"
-    restore_password: "恢复原始密码"
-    restore_profile: "恢复用户原始信息"
-    restore_status: "恢复原始状态"
-    restore_generic: "恢复资源原始数据"
-    verify_deleted: "验证资源已被正确删除"
-    verify_related: "确认相关联数据已处理"
-    no_cleanup: "无需清理"
-
 excel:
   columns:
     - header: '用例编号'
