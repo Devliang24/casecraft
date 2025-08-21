@@ -146,8 +146,29 @@ class HeadersAnalyzer:
         if not spec_data:
             return {}
         
-        auth_type = self._detect_auth_type(spec_data)
+        # First check endpoint-level security
+        if hasattr(endpoint, 'security') and endpoint.security is not None:
+            # Endpoint has specific security requirements
+            if not endpoint.security:
+                # Empty array means no authentication required
+                return {}
+            
+            # Extract auth type from endpoint security
+            auth_type = self._detect_auth_type_from_security(endpoint.security, spec_data)
+        else:
+            # Check if there's global security requirement
+            global_security = spec_data.get('security', None)
+            if global_security is None:
+                # No security requirement at all (neither endpoint nor global)
+                return {}
+            elif not global_security:
+                # Empty global security array means no auth
+                return {}
+            else:
+                # Use global security requirement
+                auth_type = self._detect_auth_type_from_security(global_security, spec_data)
         
+        # Generate headers based on auth type
         if auth_type == AuthType.BEARER_TOKEN:
             return {"Authorization": "Bearer ${AUTH_TOKEN}"}
         elif auth_type == AuthType.API_KEY:
@@ -158,6 +179,68 @@ class HeadersAnalyzer:
             return {"Authorization": "Bearer ${OAUTH_TOKEN}"}
         
         return {}
+    
+    def _detect_auth_type_from_security(self, security: List[Dict[str, List[str]]], spec_data: Dict[str, Any]) -> Optional[AuthType]:
+        """从端点的security定义中检测认证类型。
+        
+        Args:
+            security: 端点的security要求列表
+            spec_data: 完整的API规范数据
+            
+        Returns:
+            检测到的认证类型
+        """
+        if not security or not spec_data:
+            return None
+        
+        # Security is a list of requirement objects
+        # Each object contains scheme names as keys
+        for requirement in security:
+            for scheme_name in requirement.keys():
+                # Look up the scheme in components/securitySchemes (OpenAPI 3)
+                if "components" in spec_data and "securitySchemes" in spec_data["components"]:
+                    schemes = spec_data["components"]["securitySchemes"]
+                    if scheme_name in schemes:
+                        scheme = schemes[scheme_name]
+                        scheme_type = scheme.get("type", "").lower()
+                        
+                        if scheme_type == "http":
+                            scheme_scheme = scheme.get("scheme", "").lower()
+                            if scheme_scheme == "bearer":
+                                return AuthType.BEARER_TOKEN
+                            elif scheme_scheme == "basic":
+                                return AuthType.BASIC_AUTH
+                        elif scheme_type == "apikey":
+                            return AuthType.API_KEY
+                        elif scheme_type == "oauth2":
+                            return AuthType.OAUTH2
+                
+                # Look up in securityDefinitions (Swagger 2)
+                if "securityDefinitions" in spec_data:
+                    definitions = spec_data["securityDefinitions"]
+                    if scheme_name in definitions:
+                        definition = definitions[scheme_name]
+                        def_type = definition.get("type", "").lower()
+                        
+                        if def_type == "oauth2":
+                            return AuthType.OAUTH2
+                        elif def_type == "apikey":
+                            return AuthType.API_KEY
+                        elif def_type == "basic":
+                            return AuthType.BASIC_AUTH
+                
+                # Handle common scheme names even without definitions
+                scheme_lower = scheme_name.lower()
+                if "basic" in scheme_lower:
+                    return AuthType.BASIC_AUTH
+                elif "bearer" in scheme_lower or "jwt" in scheme_lower:
+                    return AuthType.BEARER_TOKEN
+                elif "apikey" in scheme_lower or "api_key" in scheme_lower:
+                    return AuthType.API_KEY
+                elif "oauth" in scheme_lower:
+                    return AuthType.OAUTH2
+        
+        return None
     
     def _detect_auth_type(self, spec_data: Dict[str, Any]) -> AuthType:
         """检测API的认证类型。

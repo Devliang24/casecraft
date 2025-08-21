@@ -271,6 +271,9 @@ class APIParser:
                     response = self._resolve_reference(response['$ref'], spec_data)
                 responses[status_code] = response
             
+            # Extract security requirements (endpoint-level)
+            security = operation.get('security', None)
+            
             return APIEndpoint(
                 method=method,
                 path=path,
@@ -280,7 +283,8 @@ class APIParser:
                 tags=tags,
                 parameters=parameters,
                 request_body=request_body,
-                responses=responses
+                responses=responses,
+                security=security
             )
             
         except Exception:
@@ -406,6 +410,9 @@ class APIParser:
             # Parse responses
             responses = operation.get('responses', {})
             
+            # Extract security requirements (endpoint-level)
+            security = operation.get('security', None)
+            
             return APIEndpoint(
                 method=method,
                 path=path,
@@ -415,7 +422,8 @@ class APIParser:
                 tags=tags,
                 parameters=parameters,
                 request_body=request_body,
-                responses=responses
+                responses=responses,
+                security=security
             )
             
         except Exception:

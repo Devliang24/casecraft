@@ -28,6 +28,7 @@ class APIEndpoint(BaseModel):
     parameters: List[APIParameter] = Field(default_factory=list)
     request_body: Optional[Dict[str, Any]] = None
     responses: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    security: Optional[List[Dict[str, List[str]]]] = None  # Endpoint-level security requirements
     
     def get_endpoint_id(self) -> str:
         """Generate unique endpoint identifier."""
