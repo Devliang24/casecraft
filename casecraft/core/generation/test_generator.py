@@ -512,6 +512,8 @@ class TestCaseGenerator:
         """Get system prompt for LLM."""
         return """你是一个专业的API用例设计工程师，负责设计全面、高质量的测试用例。
 
+🔴 **强制要求：所有测试用例的name和description必须使用中文！** 🔴
+
 ⚠️ **关键要求：必须生成充足数量的正向测试用例！**
 - POST端点：至少7个正向测试用例
 - GET端点：至少4个正向测试用例  
@@ -575,7 +577,10 @@ class TestCaseGenerator:
 
 测试用例要求：
 - 每个测试用例必须有test_id（从1开始的递增编号）
-- 使用中文命名，name和description都用中文描述
+- 🔴 **强制要求：name和description必须使用中文** 🔴
+  * name示例："创建订单成功"、"参数缺失错误"、"权限验证失败"
+  * description示例："测试正常创建订单流程"、"测试缺少必填参数时的错误处理"
+  * ❌ 禁止英文：不要生成 "Create Order"、"Invalid Request" 等英文内容
 - 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)、401(未认证)、403(无权限)
 - 测试数据要真实且简短
 - 确保测试用例具有实际意义，避免重复或无效的测试
@@ -780,10 +785,14 @@ Headers设置智能规则：
 1. **必须生成**足够的正向测试用例：至少{complexity['recommended_counts']['positive'][0]}个，推荐{complexity['recommended_counts']['positive'][1]}个
 2. **必须生成**足够的负向测试用例：至少{complexity['recommended_counts']['negative'][0]}个，推荐{complexity['recommended_counts']['negative'][1]}个
 3. 每个测试用例必须包含所有必需字段
-4. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
-5. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
+4. 🔴 **name和description必须使用中文描述** 🔴
+   - ✅ 正确示例：name="创建订单成功", description="测试正常创建订单的流程"
+   - ❌ 错误示例：name="Create Order", description="Test order creation"
+5. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
+6. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
 
 🔥 **最重要：确保正向测试用例数量达到要求！不要少于{complexity['recommended_counts']['positive'][0]}个！**
+🔴 **第二重要：name和description必须用中文！** 🔴
 
 Return the test cases as a JSON array:"""
         
@@ -1170,12 +1179,12 @@ Return the test cases as a JSON array:"""
                 "name": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Test case name"
+                    "description": "测试用例名称（必须使用中文）"
                 },
                 "description": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Test case description"
+                    "description": "测试用例描述（必须使用中文）"
                 },
                 "method": {
                     "type": "string",
