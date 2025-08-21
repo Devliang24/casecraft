@@ -108,3 +108,8 @@ logs/
 
 # Test-specific log files
 retry_progress_*.log
+
+# Test files (development only)
+test_*.py
+test_*.xlsx
+*.xlsx
