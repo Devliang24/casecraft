@@ -12,10 +12,14 @@ from pydantic import ValidationError as PydanticValidationError
 
 from casecraft.core.generation.llm_client import LLMClient, LLMError
 from casecraft.core.parsing.headers_analyzer import HeadersAnalyzer
-from casecraft.core.analysis import PathAnalyzer, SmartDescriptionGenerator, CriticalityAnalyzer
+from casecraft.core.analysis import (
+    PathAnalyzer, SmartDescriptionGenerator, CriticalityAnalyzer,
+    ModuleAnalyzer, PreconditionGenerator, PostconditionGenerator, CaseIdGenerator
+)
 from casecraft.core.analysis.constants import METHOD_BASE_COUNTS, COMPLEXITY_THRESHOLDS, TEST_TYPE_RATIOS, MIN_TEST_COUNTS, MAX_TEST_COUNTS
+from casecraft.config.template_manager import TemplateManager
 from casecraft.models.api_spec import APIEndpoint
-from casecraft.models.test_case import TestCase, TestCaseCollection, TestType
+from casecraft.models.test_case import TestCase, TestCaseCollection, TestType, Priority
 from casecraft.models.usage import TokenUsage
 from casecraft.utils.logging import CaseCraftLogger
 
@@ -37,13 +41,14 @@ class GenerationResult:
 class TestCaseGenerator:
     """Generates test cases for API endpoints using LLM."""
     
-    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None, console=None):
+    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None, console=None, config_path: Optional[str] = None):
         """Initialize test case generator.
         
         Args:
             llm_client: LLM client instance
             api_version: API version string
             console: Optional Rich console for output (helps with progress bar coordination)
+            config_path: Optional path to custom configuration file
         """
         self.llm_client = llm_client
         self.api_version = api_version
@@ -51,10 +56,19 @@ class TestCaseGenerator:
         self.logger = CaseCraftLogger("test_generator", console=console, show_timestamp=True, show_level=True)
         self._test_case_schema = self._get_test_case_schema()
         
+        # Initialize template manager
+        self.template_manager = TemplateManager(config_path)
+        
         # 初始化智能分析器
         self.path_analyzer = PathAnalyzer()
         self.description_generator = SmartDescriptionGenerator()
         self.criticality_analyzer = CriticalityAnalyzer()
+        
+        # Initialize new analyzers
+        self.module_analyzer = ModuleAnalyzer(self.template_manager)
+        self.precondition_generator = PreconditionGenerator(self.template_manager)
+        self.postcondition_generator = PostconditionGenerator(self.template_manager)
+        self.case_id_generator = CaseIdGenerator(self.module_analyzer)
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
         """Generate concise Chinese description for endpoint using smart inference.
@@ -1168,6 +1182,33 @@ Return the test cases as a JSON array:"""
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Business logic validation rules"
+                },
+                "case_id": {
+                    "type": "string",
+                    "description": "Test case identifier"
+                },
+                "module": {
+                    "type": "string",
+                    "description": "Module name"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["P0", "P1", "P2"],
+                    "description": "Priority level"
+                },
+                "preconditions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Preconditions"
+                },
+                "postconditions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Post-conditions/cleanup"
+                },
+                "remarks": {
+                    "type": "string",
+                    "description": "Additional remarks"
                 }
             },
             "additionalProperties": False
@@ -1186,10 +1227,41 @@ Return the test cases as a JSON array:"""
         # Extract response schemas from endpoint
         response_schemas = self._extract_response_schemas(endpoint)
         
+        # Get module information for all test cases
+        module = self.module_analyzer.analyze(endpoint)
+        
         # Ensure each test case has a proper test_id
         for i, test_case in enumerate(test_cases, 1):
             if not hasattr(test_case, 'test_id') or test_case.test_id is None:
                 test_case.test_id = i
+            
+            # Generate case ID
+            test_case.case_id = self.case_id_generator.generate(module, endpoint.method, i)
+            
+            # Set module
+            test_case.module = module
+            
+            # Set priority based on criticality and test type
+            test_case.priority = self.criticality_analyzer.get_priority(endpoint, test_case.test_type)
+            
+            # Generate preconditions
+            auto_preconditions = self.precondition_generator.generate(endpoint, test_case.test_type)
+            # Merge with any existing preconditions from LLM
+            if hasattr(test_case, 'preconditions') and test_case.preconditions:
+                # Combine and deduplicate
+                combined = auto_preconditions + test_case.preconditions
+                seen = set()
+                unique_preconditions = []
+                for condition in combined:
+                    if condition not in seen:
+                        seen.add(condition)
+                        unique_preconditions.append(condition)
+                test_case.preconditions = unique_preconditions
+            else:
+                test_case.preconditions = auto_preconditions
+            
+            # Generate postconditions
+            test_case.postconditions = self.postcondition_generator.generate(endpoint, test_case.test_type)
             
             status_str = str(test_case.status)
             

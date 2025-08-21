@@ -1,0 +1,143 @@
+# Default template configuration for CaseCraft
+# This file defines the default mappings and rules for test case generation
+
+modules:
+  patterns:
+    - regex: '/users?/'
+      name: '用户管理'
+      prefix: 'USR'
+    - regex: '/auth|login|register/'
+      name: '认证授权'
+      prefix: 'AUTH'
+    - regex: '/orders?/'
+      name: '订单系统'
+      prefix: 'ORD'
+    - regex: '/products?/'
+      name: '商品管理'
+      prefix: 'PRD'
+    - regex: '/cart/'
+      name: '购物车'
+      prefix: 'CART'
+    - regex: '/payment/'
+      name: '支付系统'
+      prefix: 'PAY'
+    - regex: '/categories?/'
+      name: '分类管理'
+      prefix: 'CAT'
+    - regex: '/admin/'
+      name: '后台管理'
+      prefix: 'ADM'
+  default: '通用接口'
+
+priorities:
+  rules:
+    - conditions:
+        method: 'DELETE'
+        test_type: 'positive'
+      priority: 'P0'
+    - conditions:
+        method: 'POST'
+        score_min: 5
+        test_type: 'positive'
+      priority: 'P0'
+    - conditions:
+        method: 'POST'
+        test_type: 'positive'
+      priority: 'P1'
+    - conditions:
+        method: 'PUT'
+        test_type: 'positive'
+      priority: 'P1'
+    - conditions:
+        method: 'PATCH'
+        test_type: 'positive'
+      priority: 'P1'
+    - conditions:
+        method: 'GET'
+        test_type: 'positive'
+      priority: 'P1'
+    - conditions:
+        test_type: 'negative'
+        score_min: 7
+      priority: 'P1'
+    - conditions:
+        test_type: 'boundary'
+      priority: 'P2'
+  default: 'P2'
+
+templates:
+  preconditions:
+    auth_token: "用户已登录并获取有效的Bearer Token"
+    api_key: "已配置有效的API Key"
+    resource_exists: "数据库中存在测试{resource}"
+    resource_updatable: "待更新的资源存在且状态正常"
+    resource_deletable: "待删除的资源存在且无关联依赖"
+    cart_has_items: "购物车中有商品"
+    stock_sufficient: "商品库存充足"
+  
+  postconditions:
+    delete_order: "删除测试创建的订单"
+    restore_stock: "恢复商品库存"
+    delete_user: "删除测试创建的用户账号"
+    delete_product: "删除测试创建的商品"
+    clear_cart: "清空测试购物车"
+    delete_generic: "删除测试创建的数据"
+    restore_password: "恢复原始密码"
+    restore_profile: "恢复用户原始信息"
+    restore_status: "恢复原始状态"
+    restore_generic: "恢复资源原始数据"
+    verify_deleted: "验证资源已被正确删除"
+    verify_related: "确认相关联数据已处理"
+    no_cleanup: "无需清理"
+
+excel:
+  columns:
+    - header: '用例编号'
+      field: 'case_id'
+      width: 12
+    - header: '所属模块'
+      field: 'module'
+      width: 15
+    - header: '接口名称'
+      field: 'api_name'
+      width: 25
+    - header: '用例标题'
+      field: 'name'
+      width: 30
+    - header: '优先级'
+      field: 'priority'
+      width: 10
+    - header: '前置条件'
+      field: 'preconditions'
+      width: 35
+    - header: '请求方法'
+      field: 'method'
+      width: 12
+    - header: '请求URL'
+      field: 'path'
+      width: 30
+    - header: '请求头'
+      field: 'headers'
+      width: 35
+    - header: '请求参数/正文'
+      field: 'request_data'
+      width: 45
+    - header: '预期状态码'
+      field: 'status'
+      width: 12
+    - header: '预期响应正文'
+      field: 'response_assertions'
+      width: 45
+    - header: '后置处理'
+      field: 'postconditions'
+      width: 35
+    - header: '备注'
+      field: 'remarks'
+      width: 25
+  
+  styles:
+    header_bg_color: 'D3D3D3'  # Light gray
+    priority_colors:
+      P0: 'FFE6E6'  # Light red
+      P1: 'FFF4E6'  # Light orange
+      P2: 'E6F7E6'  # Light green

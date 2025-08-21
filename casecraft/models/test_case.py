@@ -15,6 +15,14 @@ class TestType(str, Enum):
     BOUNDARY = "boundary"
 
 
+class Priority(str, Enum):
+    """Test case priority levels."""
+    
+    P0 = "P0"  # Blocking, core functionality
+    P1 = "P1"  # Important functionality
+    P2 = "P2"  # Secondary functionality
+
+
 class TestCaseMetadata(BaseModel):
     """Metadata for a test case."""
     
@@ -27,8 +35,12 @@ class TestCase(BaseModel):
     """A single test case definition."""
     
     test_id: int = Field(..., description="Test case ID/sequence number")
+    case_id: Optional[str] = Field(None, description="Test case identifier (e.g. USR-GET-001)")
     name: str = Field(..., description="Test case name")
     description: str = Field(..., description="Test case detailed description")
+    module: Optional[str] = Field(None, description="Module name (e.g. 用户管理)")
+    priority: Optional[Priority] = Field(None, description="Priority level: P0/P1/P2")
+    preconditions: List[str] = Field(default_factory=list, description="Preconditions list")
     method: str = Field(..., description="HTTP method (GET/POST/PUT/DELETE/etc)")
     path: str = Field(..., description="API path (e.g. '/users/{id}')")
     headers: Dict[str, Any] = Field(default_factory=dict, description="Request headers")
@@ -48,6 +60,8 @@ class TestCase(BaseModel):
     rules: List[str] = Field(
         default_factory=list, description="Business logic validation rules"
     )
+    postconditions: List[str] = Field(default_factory=list, description="Post-conditions/cleanup steps")
+    remarks: Optional[str] = Field(None, description="Additional remarks")
     test_type: TestType = Field(..., description="Test type: positive/negative/boundary")
 
     def model_dump(self, **kwargs):
@@ -63,6 +77,14 @@ class TestCase(BaseModel):
         if 'query_params' in data:
             if data['query_params'] is None or data['query_params'] == {}:
                 del data['query_params']
+        
+        # Remove empty preconditions list
+        if 'preconditions' in data and not data['preconditions']:
+            del data['preconditions']
+        
+        # Remove empty postconditions list
+        if 'postconditions' in data and not data['postconditions']:
+            del data['postconditions']
         
         return data
 

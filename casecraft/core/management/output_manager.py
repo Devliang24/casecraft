@@ -15,6 +15,7 @@ from casecraft.utils.file_utils import (
     get_unique_filename, sanitize_filename
 )
 from casecraft.utils.formatters import OutputFormatter, get_formatter
+from casecraft.utils.logging import CaseCraftLogger
 
 
 class OutputError(Exception):
@@ -41,6 +42,7 @@ class OutputManager:
         self.config = config
         self.formatter = formatter or get_formatter("json")
         self.console = console or Console()
+        self.logger = CaseCraftLogger("output_manager", console=console)
         
         # Track generated files
         self.generated_files: List[Path] = []
@@ -70,15 +72,22 @@ class OutputManager:
             # Format content
             content = self.formatter.format(collection)
             
-            # Save file
-            async with aiofiles.open(output_path, 'w', encoding='utf-8') as f:
-                await f.write(content)
+            # Save file based on format type
+            if hasattr(self.formatter, 'is_binary') and self.formatter.is_binary():
+                # Binary format (e.g., Excel)
+                async with aiofiles.open(output_path, 'wb') as f:
+                    await f.write(content)
+                file_size = len(content)
+            else:
+                # Text format (e.g., JSON)
+                async with aiofiles.open(output_path, 'w', encoding='utf-8') as f:
+                    await f.write(content)
+                file_size = len(content.encode('utf-8'))
             
             # Log successful write
             self.logger.info(f"Successfully written {len(collection.test_cases)} test cases to {output_path.name}")
             
             # Update tracking
-            file_size = len(content.encode('utf-8'))
             self.generated_files.append(output_path)
             self.total_size += file_size
             

@@ -10,9 +10,17 @@
 from .path_analyzer import PathAnalyzer
 from .description_generator import SmartDescriptionGenerator
 from .criticality_analyzer import CriticalityAnalyzer
+from .module_analyzer import ModuleAnalyzer
+from .precondition_generator import PreconditionGenerator
+from .postcondition_generator import PostconditionGenerator
+from .case_id_generator import CaseIdGenerator
 
 __all__ = [
     'PathAnalyzer',
     'SmartDescriptionGenerator', 
-    'CriticalityAnalyzer'
+    'CriticalityAnalyzer',
+    'ModuleAnalyzer',
+    'PreconditionGenerator',
+    'PostconditionGenerator',
+    'CaseIdGenerator'
 ]

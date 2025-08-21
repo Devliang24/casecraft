@@ -368,6 +368,28 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     help="Organize output files by criteria"
 )
 @click.option(
+    "--format",
+    type=click.Choice(["json", "excel", "compact", "pretty"]),
+    default="json",
+    help="Output format for test cases"
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, readable=True),
+    help="Custom template configuration file for Excel format"
+)
+@click.option(
+    "--merge-excel",
+    is_flag=True,
+    help="Merge all endpoints into one Excel file with multiple sheets"
+)
+@click.option(
+    "--priority",
+    type=click.Choice(["P0", "P1", "P2", "all"]),
+    default="all",
+    help="Filter test cases by priority level"
+)
+@click.option(
     "--provider",
     help="Use specific LLM provider for all endpoints (e.g., glm, qwen, local)"
 )
@@ -410,6 +432,10 @@ def generate(
     force: bool,
     dry_run: bool,
     organize_by: str,
+    format: str,
+    config: Optional[str],
+    merge_excel: bool,
+    priority: str,
     provider: str,
     providers: str,
     provider_map: str,
@@ -483,6 +509,10 @@ def generate(
         force=force,
         dry_run=dry_run,
         organize_by=organize_by,
+        format=format,
+        config=config,
+        merge_excel=merge_excel,
+        priority=priority,
         verbose=verbose,
         quiet=quiet,
         provider=provider,

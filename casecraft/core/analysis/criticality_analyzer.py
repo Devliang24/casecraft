@@ -48,6 +48,40 @@ class CriticalityAnalyzer:
         # 限制最大分数
         return min(int(score), 10)
     
+    def get_priority(self, endpoint, test_type: str) -> str:
+        """Get priority level based on endpoint and test type.
+        
+        Args:
+            endpoint: API endpoint
+            test_type: Test type (positive/negative/boundary)
+            
+        Returns:
+            Priority level (P0/P1/P2)
+        """
+        score = self.analyze(endpoint)
+        method = endpoint.method.upper()
+        
+        # Priority determination logic
+        if test_type == "positive":
+            # DELETE operations are always P0 for positive tests
+            if method == "DELETE":
+                return "P0"
+            # High criticality POST operations are P0
+            if method == "POST" and score >= 5:
+                return "P0"
+            # Other positive tests are P1
+            return "P1"
+        
+        elif test_type == "negative":
+            # Critical operations or high-score endpoints get P1
+            if method in ["DELETE", "POST"] or score >= 7:
+                return "P1"
+            # Other negative tests are P2
+            return "P2"
+        
+        # Boundary tests are typically P2
+        return "P2"
+    
     def _evaluate_keyword_criticality(self, path_lower: str) -> int:
         """
         基于关键词评估关键性
