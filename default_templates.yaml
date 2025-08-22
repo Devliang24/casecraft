@@ -82,6 +82,9 @@ excel:
     - header: '优先级'
       field: 'priority'
       width: 10
+    - header: '用例类型'
+      field: 'test_type'
+      width: 12
     - header: '前置条件'
       field: 'preconditions'
       width: 35

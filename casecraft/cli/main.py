@@ -418,6 +418,28 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     type=click.Path(dir_okay=False, writable=True),
     help="Path to log file, or just '--log-file' to auto-generate (casecraft_TIMESTAMP.log)"
 )
+@click.option(
+    "--save-prompts",
+    is_flag=True,
+    help="Save LLM prompts to files for debugging"
+)
+@click.option(
+    "--prompts-dir",
+    type=click.Path(dir_okay=True, file_okay=False),
+    default="prompts",
+    help="Directory to save prompts (default: prompts)"
+)
+@click.option(
+    "--prompt-format",
+    type=click.Choice(["txt", "json", "markdown"]),
+    default="txt",
+    help="Format for saving prompts (default: txt)"
+)
+@click.option(
+    "--save-responses",
+    is_flag=True,
+    help="Also save LLM responses along with prompts"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -442,6 +464,10 @@ def generate(
     strategy: str,
     model: str,
     log_file: Optional[str],
+    save_prompts: bool,
+    prompts_dir: str,
+    prompt_format: str,
+    save_responses: bool,
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -519,7 +545,11 @@ def generate(
         providers=providers,
         provider_map=provider_map,
         strategy=strategy,
-        model=model
+        model=model,
+        save_prompts=save_prompts,
+        prompts_dir=prompts_dir,
+        prompt_format=prompt_format,
+        save_responses=save_responses
     )
 
 

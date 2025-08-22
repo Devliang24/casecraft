@@ -180,6 +180,15 @@ class ExcelFormatter(OutputFormatter):
     
     def _write_test_case(self, ws, row_idx, test_case, collection):
         """Write a single test case row."""
+        # Combine remarks with business rules if present
+        remarks = getattr(test_case, 'remarks', '')
+        if hasattr(test_case, 'rules') and test_case.rules:
+            rules_text = "验证规则:\n" + self._format_list(test_case.rules)
+            if remarks:
+                remarks = f"{remarks}\n\n{rules_text}"
+            else:
+                remarks = rules_text
+        
         # Map field names to values
         data_map = {
             'case_id': getattr(test_case, 'case_id', ''),
@@ -187,6 +196,7 @@ class ExcelFormatter(OutputFormatter):
             'api_name': f"{collection.method} {collection.path}",
             'name': test_case.name,
             'priority': getattr(test_case, 'priority', ''),
+            'test_type': self._format_test_type(getattr(test_case, 'test_type', '')),
             'preconditions': self._format_list(getattr(test_case, 'preconditions', [])),
             'method': test_case.method,
             'path': test_case.path,
@@ -195,7 +205,7 @@ class ExcelFormatter(OutputFormatter):
             'status': test_case.status,
             'response_assertions': self._format_response_assertions(test_case),
             'postconditions': self._format_list(getattr(test_case, 'postconditions', [])),
-            'remarks': getattr(test_case, 'remarks', '')
+            'remarks': remarks
         }
         
         # Write data and apply priority coloring
@@ -261,6 +271,15 @@ class ExcelFormatter(OutputFormatter):
         
         return "\n".join(f"{i+1}. {item}" for i, item in enumerate(data))
     
+    def _format_test_type(self, test_type: str) -> str:
+        """Format test type to Chinese."""
+        type_mapping = {
+            'positive': '正向',
+            'negative': '反向',
+            'boundary': '边界'
+        }
+        return type_mapping.get(test_type, test_type)
+    
     def _format_request_data(self, test_case) -> str:
         """Format request data (params and body)."""
         parts = []
@@ -287,24 +306,24 @@ class ExcelFormatter(OutputFormatter):
         return "\n\n".join(parts) if parts else ""
     
     def _format_response_assertions(self, test_case) -> str:
-        """Format response assertions."""
-        parts = []
+        """Format response assertions - follows template requirements."""
+        # Priority 1: Complete JSON response example (if available)
+        if hasattr(test_case, 'resp_example') and test_case.resp_example:
+            # Full JSON response example
+            return json.dumps(test_case.resp_example, indent=2, ensure_ascii=False)
         
+        # Priority 2: Response content (resp_content)
         if hasattr(test_case, 'resp_content') and test_case.resp_content:
-            parts.append(f"响应内容验证:\n{json.dumps(test_case.resp_content, indent=2, ensure_ascii=False)}")
+            # Always return resp_content as JSON without any prefix
+            return json.dumps(test_case.resp_content, indent=2, ensure_ascii=False)
         
+        # Priority 3: JSON Schema validation
         if hasattr(test_case, 'resp_schema') and test_case.resp_schema:
-            # Simplify schema for display
-            schema_summary = {
-                "type": test_case.resp_schema.get("type", "object"),
-                "properties": list(test_case.resp_schema.get("properties", {}).keys())[:5]
-            }
-            parts.append(f"响应结构:\n{json.dumps(schema_summary, indent=2, ensure_ascii=False)}")
+            # Return the full schema for validation
+            return f"JSON Schema:\n{json.dumps(test_case.resp_schema, indent=2, ensure_ascii=False)}"
         
-        if hasattr(test_case, 'rules') and test_case.rules:
-            parts.append(f"业务规则:\n{self._format_list(test_case.rules)}")
-        
-        return "\n\n".join(parts) if parts else ""
+        # Default: empty if no response validation defined
+        return ""
 
 
 def get_formatter(format_type: str = "json", template_manager: Optional[TemplateManager] = None) -> OutputFormatter:

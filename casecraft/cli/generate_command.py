@@ -16,7 +16,7 @@ from casecraft.core.management.multi_provider_config_manager import MultiProvide
 from casecraft.core.management.enhanced_state_manager import EnhancedStateManager
 from casecraft.core.engine import GeneratorEngine, GeneratorError, GenerationResult
 from casecraft.core.multi_provider_engine import MultiProviderEngine
-from casecraft.models.config import CaseCraftConfig
+from casecraft.models.config import CaseCraftConfig, PromptConfig
 from casecraft.models.provider_config import MultiProviderConfig, ProviderConfig
 from casecraft.core.providers.registry import ProviderRegistry
 from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
@@ -47,7 +47,11 @@ async def generate_command(
     providers: Optional[str] = None,
     provider_map: Optional[str] = None,
     strategy: str = "round_robin",
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    save_prompts: bool = False,
+    prompts_dir: str = "prompts",
+    prompt_format: str = "txt",
+    save_responses: bool = False
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -112,14 +116,19 @@ async def generate_command(
             config=config,
             merge_excel=merge_excel,
             priority=priority,
-            model=model
+            model=model,
+            save_prompts=save_prompts,
+            prompts_dir=prompts_dir,
+            prompt_format=prompt_format,
+            save_responses=save_responses
         )
     
     # Legacy single-provider mode (backward compatibility)
     try:
         # Load configuration
         config = await _load_configuration(
-            output, workers, force, dry_run, organize_by, verbose
+            output, workers, force, dry_run, organize_by, verbose,
+            save_prompts, prompts_dir, prompt_format, save_responses
         )
         
         # Validate configuration
@@ -203,7 +212,11 @@ async def _load_configuration(
     force: bool,
     dry_run: bool,
     organize_by: Optional[str],
-    verbose: bool
+    verbose: bool,
+    save_prompts: bool = False,
+    prompts_dir: str = "prompts",
+    prompt_format: str = "txt",
+    save_responses: bool = False
 ) -> CaseCraftConfig:
     """Load and merge configuration from all sources.
     
@@ -235,6 +248,16 @@ async def _load_configuration(
         cli_overrides["processing.dry_run"] = dry_run
     if organize_by:
         cli_overrides["output.organize_by_tag"] = (organize_by == "tag")
+    
+    # Add prompt configuration overrides
+    if save_prompts:
+        cli_overrides["prompt.save_prompts"] = save_prompts
+    if prompts_dir != "prompts":  # Not default
+        cli_overrides["prompt.prompts_dir"] = prompts_dir
+    if prompt_format != "txt":  # Not default
+        cli_overrides["prompt.prompt_format"] = prompt_format
+    if save_responses:
+        cli_overrides["prompt.save_responses"] = save_responses
     
     # Load with overrides
     config = config_manager.load_config_with_overrides(env_overrides, cli_overrides)
@@ -565,7 +588,11 @@ async def _generate_with_providers(
     config: Optional[str] = None,
     merge_excel: bool = False,
     priority: str = "all",
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    save_prompts: bool = False,
+    prompts_dir: str = "prompts",
+    prompt_format: str = "txt",
+    save_responses: bool = False
 ) -> None:
     """Generate test cases with multi-provider support."""
     try:
@@ -582,7 +609,8 @@ async def _generate_with_providers(
                 source, output, include_tag, exclude_tag, include_path,
                 include_method, exclude_method,
                 workers, force, dry_run, organize_by, verbose, quiet, provider, model,
-                format, config, merge_excel, priority
+                format, config, merge_excel, priority,
+                save_prompts, prompts_dir, prompt_format, save_responses
             )
         else:
             # Multi-provider mode
@@ -658,7 +686,11 @@ async def _run_single_provider(
     format: str = "json",
     config: Optional[str] = None,
     merge_excel: bool = False,
-    priority: str = "all"
+    priority: str = "all",
+    save_prompts: bool = False,
+    prompts_dir: str = "prompts",
+    prompt_format: str = "txt",
+    save_responses: bool = False
 ) -> None:
     """Run generation with a single provider - unified handling for all providers."""
     
@@ -736,6 +768,15 @@ async def _run_single_provider(
     base_config.processing.dry_run = dry_run
     if organize_by:
         base_config.output.organize_by_tag = (organize_by == "tag")
+    
+    # Add prompt configuration if enabled
+    if save_prompts:
+        base_config.prompt = PromptConfig(
+            save_prompts=save_prompts,
+            prompts_dir=prompts_dir,
+            prompt_format=prompt_format,
+            save_responses=save_responses
+        )
     
     # 7. Show configuration
     if not quiet:

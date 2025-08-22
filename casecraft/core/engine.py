@@ -450,7 +450,15 @@ class GeneratorEngine:
                 self.logger.error(f"Provider instance is None. self.provider_instance={self.provider_instance}")
                 raise GeneratorError("Provider instance is required")
                 
-            self._test_generator = TestCaseGenerator(self._llm_client, api_version, console=self.console, config_path=self.config_path)
+            # Pass prompt config to test generator if available
+            prompt_config = getattr(self.config, 'prompt', None)
+            self._test_generator = TestCaseGenerator(
+                self._llm_client, 
+                api_version, 
+                console=self.console, 
+                config_path=self.config_path,
+                prompt_config=prompt_config
+            )
             
         except Exception as e:
             raise GeneratorError(f"Failed to initialize LLM components: {e}") from e

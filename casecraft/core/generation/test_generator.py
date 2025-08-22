@@ -4,6 +4,8 @@ import json
 import os
 import re
 import asyncio
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -41,7 +43,7 @@ class GenerationResult:
 class TestCaseGenerator:
     """Generates test cases for API endpoints using LLM."""
     
-    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None, console=None, config_path: Optional[str] = None):
+    def __init__(self, llm_client: LLMClient, api_version: Optional[str] = None, console=None, config_path: Optional[str] = None, prompt_config=None):
         """Initialize test case generator.
         
         Args:
@@ -49,6 +51,7 @@ class TestCaseGenerator:
             api_version: API version string
             console: Optional Rich console for output (helps with progress bar coordination)
             config_path: Optional path to custom configuration file
+            prompt_config: Optional PromptConfig for saving prompts
         """
         self.llm_client = llm_client
         self.api_version = api_version
@@ -67,6 +70,159 @@ class TestCaseGenerator:
         # Initialize analyzers (only keep the ones we still need)
         self.module_analyzer = ModuleAnalyzer(self.template_manager)
         self.case_id_generator = CaseIdGenerator(self.module_analyzer)
+        
+        # Prompt saving configuration
+        self.prompt_config = prompt_config
+    
+    def _save_prompt_to_file(self, prompt: str, system_prompt: str, endpoint: APIEndpoint, attempt: int = 0) -> Optional[Path]:
+        """Save prompt to file if configured.
+        
+        Args:
+            prompt: User prompt
+            system_prompt: System prompt
+            endpoint: API endpoint being processed
+            attempt: Retry attempt number
+            
+        Returns:
+            Path to saved file or None if not saved
+        """
+        if not self.prompt_config or not self.prompt_config.save_prompts:
+            return None
+        
+        try:
+            # Create base directory
+            base_dir = Path(self.prompt_config.prompts_dir)
+            
+            # Add date folder if configured
+            if self.prompt_config.organize_by_date:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                base_dir = base_dir / date_str
+            
+            # Add endpoint folder if configured
+            if self.prompt_config.organize_by_endpoint:
+                endpoint_slug = endpoint.path.replace("/", "_").strip("_")
+                base_dir = base_dir / f"{endpoint.method.lower()}_{endpoint_slug}"
+            
+            # Create directories
+            base_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate filename
+            timestamp = datetime.now().strftime("%H%M%S")
+            endpoint_name = endpoint.path.replace("/", "_").strip("_")
+            filename_base = f"{endpoint.method}_{endpoint_name}_{timestamp}"
+            
+            if attempt > 0:
+                filename_base += f"_retry{attempt}"
+            
+            # Determine file extension based on format
+            ext = self.prompt_config.prompt_format
+            if ext == "markdown":
+                ext = "md"
+            
+            # Save prompt based on format
+            if self.prompt_config.prompt_format == "json":
+                # Save as JSON with metadata
+                prompt_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "endpoint": {
+                        "path": endpoint.path,
+                        "method": endpoint.method,
+                        "description": endpoint.description
+                    },
+                    "attempt": attempt,
+                    "system_prompt": system_prompt,
+                    "user_prompt": prompt,
+                    "metadata": {
+                        "complexity": self._evaluate_endpoint_complexity(endpoint),
+                        "api_version": self.api_version,
+                        "llm_provider": str(getattr(self.llm_client, 'provider_name', 'unknown'))
+                    }
+                }
+                
+                file_path = base_dir / f"{filename_base}.json"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(prompt_data, f, ensure_ascii=False, indent=2)
+                    
+            elif self.prompt_config.prompt_format == "markdown":
+                # Save as Markdown
+                content = f"""# LLM Prompt for {endpoint.method} {endpoint.path}
+
+## Metadata
+- **Timestamp**: {datetime.now().isoformat()}
+- **Endpoint**: {endpoint.method} {endpoint.path}
+- **Description**: {endpoint.description or 'N/A'}
+- **Attempt**: {attempt}
+- **Complexity**: {self._evaluate_endpoint_complexity(endpoint)}
+
+## System Prompt
+```
+{system_prompt}
+```
+
+## User Prompt
+```
+{prompt}
+```
+"""
+                file_path = base_dir / f"{filename_base}.md"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                    
+            else:  # Default to txt
+                # Save as plain text
+                content = f"""=== LLM PROMPT ===
+Timestamp: {datetime.now().isoformat()}
+Endpoint: {endpoint.method} {endpoint.path}
+Attempt: {attempt}
+
+=== SYSTEM PROMPT ===
+{system_prompt}
+
+=== USER PROMPT ===
+{prompt}
+"""
+                file_path = base_dir / f"{filename_base}.txt"
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            
+            self.logger.file_only(f"Saved prompt to: {file_path}", level="DEBUG")
+            return file_path
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to save prompt: {e}")
+            return None
+    
+    def _save_response_to_file(self, response_content: str, prompt_file: Path) -> Optional[Path]:
+        """Save LLM response to file if configured.
+        
+        Args:
+            response_content: LLM response content
+            prompt_file: Path to the corresponding prompt file
+            
+        Returns:
+            Path to saved response file or None
+        """
+        if not self.prompt_config or not self.prompt_config.save_responses or not prompt_file:
+            return None
+        
+        try:
+            # Generate response filename based on prompt filename
+            response_file = prompt_file.parent / f"{prompt_file.stem}_response.json"
+            
+            with open(response_file, "w", encoding="utf-8") as f:
+                # Try to parse as JSON, otherwise save as text
+                try:
+                    parsed = json.loads(response_content)
+                    json.dump(parsed, f, ensure_ascii=False, indent=2)
+                except json.JSONDecodeError:
+                    json.dump({"raw_response": response_content}, f, ensure_ascii=False, indent=2)
+            
+            self.logger.file_only(f"Saved response to: {response_file}", level="DEBUG")
+            return response_file
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to save response: {e}")
+            return None
     
     def _generate_concise_chinese_description(self, endpoint: APIEndpoint) -> str:
         """Generate concise Chinese description for endpoint using smart inference.
@@ -170,11 +326,18 @@ class TestCaseGenerator:
                     except Exception:
                         pass  # Ignore progress callback errors
                 
+                # Save prompt to file if configured
+                prompt_file = self._save_prompt_to_file(prompt, system_prompt, endpoint, attempt)
+                
                 response = await self.llm_client.generate(
                     prompt=prompt,
                     system_prompt=system_prompt,
                     progress_callback=retry_aware_callback
                 )
+                
+                # Save response to file if configured
+                if prompt_file:
+                    self._save_response_to_file(response.content, prompt_file)
                 
                 # Track token usage across retries
                 self.logger.file_only(f"LLM response.usage: {response.usage}", level="DEBUG")
@@ -394,6 +557,8 @@ class TestCaseGenerator:
         if "preconditions" in last_error.lower() or "postconditions" in last_error.lower():
             error_hints.append("preconditions 和 postconditions 必须是字符串数组格式，如: [\"条件1\", \"条件2\"]")
             error_hints.append("不要返回空字符串，使用空数组 [] 表示无条件")
+            error_hints.append("postconditions必须是具体清理操作，如: [\"调用 DELETE /api/v1/cart/items/123 删除商品\"]")
+            error_hints.append("避免模糊表述，每个步骤都要包含具体的API调用和资源ID")
         
         # Parse specific count requirements from error message
         if "at least" in last_error:
@@ -585,6 +750,66 @@ class TestCaseGenerator:
 - 测试数据要真实且简短
 - 确保测试用例具有实际意义，避免重复或无效的测试
 
+📌 **响应内容格式要求（极其重要 - 必须严格遵守）**：
+
+🔴 **resp_content字段必须是完整的JSON响应体示例，格式如下：**
+
+✅ **正确格式 - 必须使用这种格式：**
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {...}
+}
+```
+
+✅ **成功响应示例（200/201）：**
+```json
+{
+  "code": 200,
+  "message": "创建成功",
+  "data": {
+    "id": 1001,
+    "name": "测试商品",
+    "created_at": "2025-08-22T10:00:00Z"
+  }
+}
+```
+
+✅ **错误响应示例（4xx/5xx）：**
+```json
+{
+  "code": 401,
+  "message": "未认证",
+  "error": "AUTHENTICATION_REQUIRED"
+}
+```
+
+```json
+{
+  "code": 400,
+  "message": "参数错误：缺少必填字段",
+  "error": "VALIDATION_ERROR",
+  "details": {
+    "field": "product_id",
+    "reason": "必填"
+  }
+}
+```
+
+❌ **绝对禁止的格式（不要生成这些）：**
+- ❌ `{"validation_errors": true}`
+- ❌ `{"created_resource_id": true}`
+- ❌ `关键字段断言: {...}`
+- ❌ 任何简化的断言格式
+
+🔴 **强制要求：**
+1. resp_content必须是完整的JSON对象
+2. 必须包含code和message字段
+3. 成功响应包含data字段
+4. 错误响应包含error字段
+5. 所有字段值必须是具体的示例值，不是布尔断言
+
 质量与数量并重：
 - 生成高质量的测试用例，同时确保充分的数量
 - 全面的测试比节省token更重要
@@ -642,7 +867,11 @@ Headers设置智能规则：
   * 没有参数时完全省略这些字段
 - 每个测试用例必须包含完整的预期验证信息：
   * resp_headers: 响应头验证
-  * resp_content: 响应内容断言
+  * resp_content: 🔴 **必须是完整的JSON响应体** 🔴
+    - 格式：{"code": 状态码, "message": "具体消息", "data": {...}} 或
+    - 格式：{"code": 错误码, "message": "错误消息", "error": "ERROR_CODE"}
+    - ❌ 禁止：{"validation_errors": true} 或 {"created_resource_id": true}
+    - ✅ 示例：{"code": 401, "message": "未认证", "error": "AUTHENTICATION_REQUIRED"}
   * rules: 业务逻辑验证规则
 
 ## 📋 前置条件和后置处理生成规则（重要）
@@ -658,23 +887,44 @@ Headers设置智能规则：
 - DELETE /products/{id} → ["商品存在于数据库", "商品无关联订单", "操作者有删除权限"]
 - GET /products（负向测试）→ ["数据库连接失败模拟"] 或 []
 
-### postconditions（后置处理）- 数组格式
-根据测试操作类型智能生成必要的清理和验证步骤，返回字符串数组：
+### postconditions（后置处理）- 具体清理操作数组
+⚠️ **重要：必须生成具体可执行的清理步骤，不是验证步骤！**
 
-**示例（必须根据测试影响生成）：**
-- POST 创建测试 → ["删除创建的测试数据", "清理相关缓存"]
-- PUT 修改测试 → ["恢复原始数据", "验证数据一致性"]
-- DELETE 删除测试 → ["验证资源已被删除", "检查级联删除效果"]
-- GET 查询测试 → [] 或 ["清理查询缓存"]
-- 负向测试 → ["确认数据未被修改", "验证错误日志已记录"]
-- 订单相关 → ["删除测试订单", "恢复商品库存", "清空购物车"]
+**必须包含**：
+1. 具体的API调用（方法+路径+参数）
+2. 明确的资源ID
+3. 验证清理成功的方法
 
-**生成原则：**
-1. 根据接口语义而非模板生成
-2. 考虑业务逻辑和数据关联
-3. 正向测试需要更多清理步骤
-4. 负向测试主要验证无副作用
-5. 每个条件独立成一个数组元素"""
+**具体示例模板**：
+
+📌 **POST /api/v1/cart/items 添加商品成功**：
+- "调用 DELETE /api/v1/cart/items/1001 删除测试商品"
+- "调用 GET /api/v1/cart 验证购物车已清空"
+- "记录清理日志：已删除商品1001"
+
+📌 **POST /api/v1/orders 创建订单成功**：
+- "调用 DELETE /api/v1/orders/${order_id} 删除测试订单"
+- "调用 PUT /api/v1/products/1001 恢复库存+2"
+- "调用 DELETE /api/v1/cart 清空购物车"
+
+📌 **PUT /api/v1/users/123 修改用户**：
+- "调用 PUT /api/v1/users/123 恢复原始数据{name:'张三'}"
+- "调用 GET /api/v1/users/123 确认恢复成功"
+
+📌 **负向测试（失败场景）**：
+- "调用 GET /api/v1/cart 确认状态未改变"
+- "无需清理（操作未成功）"
+
+❌ **错误示例（这些是验证不是清理）**：
+- ~~"验证购物车包含商品"~~ → 这是验证
+- ~~"确认数量正确"~~ → 这是断言
+- ~~"删除测试数据"~~ → 太模糊
+
+✅ **生成原则**：
+1. 使用具体API调用和资源ID
+2. 正向测试需详细清理
+3. 负向测试验证无副作用
+4. 每步骤可独立执行"""
     
     def _build_prompt(self, endpoint: APIEndpoint) -> str:
         """Build prompt for test case generation.
@@ -760,11 +1010,14 @@ Headers设置智能规则：
    - 示例：DELETE /orders/{id} 的正向测试 → ["订单存在", "订单状态允许删除", "用户有删除权限"]
    - 示例：POST /products 的负向测试 → ["用户未登录"] 或 ["商品名称已存在"]
 
-2. **postconditions（后置处理）** - 字符串数组格式
-   - 根据测试影响生成清理步骤
-   - 正向测试通常需要清理创建的数据
-   - 负向测试主要验证无副作用
-   - 示例：POST /users 成功测试 → ["删除创建的测试用户", "清理用户相关数据"]
+2. **postconditions（后置处理）** - 具体清理操作数组
+   - 必须包含具体的API调用和资源ID
+   - 正向测试：详细的清理步骤
+     * 示例：["调用 DELETE /api/v1/users/123 删除测试用户", "调用 DELETE /api/v1/sessions/456 清理会话"]
+   - 负向测试：验证无副作用
+     * 示例：["调用 GET /api/v1/users 验证用户列表未变", "无需清理"]
+   - 边界测试：资源释放和状态重置
+     * 示例：["批量调用 DELETE /api/v1/cart 清空所有测试商品", "重置并发锁"]
 
 **完整的测试用例验证要求:**
 1. **状态码验证**: 准确的HTTP状态码期望
@@ -1236,7 +1489,7 @@ Return the test cases as a JSON array:"""
                 },
                 "resp_content": {
                     "type": "object",
-                    "description": "Expected response content assertions"
+                    "description": "Complete JSON response body example like {\"code\": 401, \"message\": \"未认证\", \"error\": \"AUTHENTICATION_REQUIRED\"} - NOT assertions like {\"validation_errors\": true}"
                 },
                 "rules": {
                     "type": "array",
@@ -1290,13 +1543,27 @@ Return the test cases as a JSON array:"""
         # Get module information for all test cases
         module = self.module_analyzer.analyze(endpoint)
         
+        # Count test cases by type for proper numbering
+        type_counters = {'positive': 0, 'negative': 0, 'boundary': 0}
+        
         # Ensure each test case has a proper test_id
         for i, test_case in enumerate(test_cases, 1):
             if not hasattr(test_case, 'test_id') or test_case.test_id is None:
                 test_case.test_id = i
             
-            # Generate case ID
-            test_case.case_id = self.case_id_generator.generate(module, endpoint.method, i)
+            # Get test type
+            test_type = test_case.test_type.value if hasattr(test_case.test_type, 'value') else test_case.test_type
+            
+            # Increment counter for this type
+            type_counters[test_type] = type_counters.get(test_type, 0) + 1
+            
+            # Generate case ID using test type and type-specific counter
+            test_case.case_id = self.case_id_generator.generate(
+                module, 
+                endpoint.method, 
+                type_counters[test_type],
+                test_type=test_type
+            )
             
             # Set module
             test_case.module = module
@@ -1324,10 +1591,14 @@ Return the test cases as a JSON array:"""
             # Add expected response headers
             test_case.resp_headers = self._extract_response_headers(endpoint, status_str)
             
-            # Add response content assertions
-            content_assertions = self._extract_response_content_assertions(endpoint, status_str)
-            if content_assertions:
-                test_case.resp_content = content_assertions
+            # Skip automatic content assertions - let LLM-generated content be used
+            # content_assertions = self._extract_response_content_assertions(endpoint, status_str)
+            # if content_assertions:
+            #     test_case.resp_content = content_assertions
+            
+            # If resp_content is not set by LLM, provide a default example
+            if not test_case.resp_content:
+                test_case.resp_content = self._generate_default_response_example(endpoint, status_str)
             
             # Add business rules based on endpoint characteristics
             business_rules = self._generate_business_rules(test_case, endpoint)
@@ -1464,6 +1735,147 @@ Return the test cases as a JSON array:"""
             headers["ETag"] = "<etag-value>"
         
         return headers
+    
+    def _generate_default_response_example(self, endpoint: APIEndpoint, status_code: str) -> Dict[str, Any]:
+        """Generate a default complete JSON response example based on status code.
+        
+        Args:
+            endpoint: API endpoint
+            status_code: HTTP status code (as string)
+            
+        Returns:
+            Complete JSON response example
+        """
+        status_int = int(status_code)
+        
+        # Success responses (2xx)
+        if 200 <= status_int < 300:
+            if status_int == 201:
+                # Created response
+                return {
+                    "code": 201,
+                    "message": "创建成功",
+                    "data": {
+                        "id": 1001,
+                        "created_at": "2025-08-22T10:00:00Z"
+                    }
+                }
+            elif status_int == 204:
+                # No content
+                return {}
+            else:
+                # Generic success
+                return {
+                    "code": 200,
+                    "message": "操作成功",
+                    "data": {
+                        "result": "success"
+                    }
+                }
+        
+        # Client error responses (4xx)
+        elif 400 <= status_int < 500:
+            if status_int == 400:
+                return {
+                    "code": 400,
+                    "message": "请求参数错误",
+                    "error": "BAD_REQUEST",
+                    "details": {
+                        "field": "required_field",
+                        "reason": "缺少必填字段"
+                    }
+                }
+            elif status_int == 401:
+                return {
+                    "code": 401,
+                    "message": "未认证",
+                    "error": "AUTHENTICATION_REQUIRED"
+                }
+            elif status_int == 403:
+                return {
+                    "code": 403,
+                    "message": "无权限",
+                    "error": "PERMISSION_DENIED"
+                }
+            elif status_int == 404:
+                return {
+                    "code": 404,
+                    "message": "资源不存在",
+                    "error": "NOT_FOUND"
+                }
+            elif status_int == 409:
+                return {
+                    "code": 409,
+                    "message": "资源冲突",
+                    "error": "CONFLICT"
+                }
+            elif status_int == 415:
+                return {
+                    "code": 415,
+                    "message": "不支持的媒体类型",
+                    "error": "UNSUPPORTED_MEDIA_TYPE"
+                }
+            elif status_int == 422:
+                return {
+                    "code": 422,
+                    "message": "验证失败",
+                    "error": "VALIDATION_ERROR",
+                    "details": {
+                        "errors": ["数据格式不正确"]
+                    }
+                }
+            elif status_int == 423:
+                return {
+                    "code": 423,
+                    "message": "资源已锁定",
+                    "error": "RESOURCE_LOCKED"
+                }
+            elif status_int == 429:
+                return {
+                    "code": 429,
+                    "message": "请求过于频繁",
+                    "error": "RATE_LIMIT_EXCEEDED"
+                }
+            else:
+                return {
+                    "code": status_int,
+                    "message": "客户端错误",
+                    "error": "CLIENT_ERROR"
+                }
+        
+        # Server error responses (5xx)
+        elif 500 <= status_int < 600:
+            if status_int == 500:
+                return {
+                    "code": 500,
+                    "message": "服务器内部错误",
+                    "error": "INTERNAL_SERVER_ERROR"
+                }
+            elif status_int == 502:
+                return {
+                    "code": 502,
+                    "message": "网关错误",
+                    "error": "BAD_GATEWAY"
+                }
+            elif status_int == 503:
+                return {
+                    "code": 503,
+                    "message": "服务暂时不可用",
+                    "error": "SERVICE_UNAVAILABLE"
+                }
+            else:
+                return {
+                    "code": status_int,
+                    "message": "服务器错误",
+                    "error": "SERVER_ERROR"
+                }
+        
+        # Default fallback
+        return {
+            "code": status_int,
+            "message": "响应",
+            "data": {}
+        }
     
     def _extract_response_content_assertions(self, endpoint: APIEndpoint, status_code: str) -> Optional[Dict[str, Any]]:
         """Extract content validation assertions for response.

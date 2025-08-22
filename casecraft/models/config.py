@@ -44,12 +44,25 @@ class ProcessingConfig(BaseModel):
     dry_run: bool = Field(default=False, description="Preview mode without LLM calls")
 
 
+class PromptConfig(BaseModel):
+    """Prompt saving configuration."""
+    
+    save_prompts: bool = Field(default=False, description="Save LLM prompts to files")
+    prompts_dir: str = Field(default="prompts", description="Directory to save prompts")
+    prompt_format: str = Field(default="txt", description="Format for saving prompts (txt/json/markdown)")
+    save_responses: bool = Field(default=False, description="Also save LLM responses")
+    max_retention_days: int = Field(default=7, description="Maximum days to retain prompt files (0 = unlimited)")
+    organize_by_date: bool = Field(default=True, description="Organize prompts by date folders")
+    organize_by_endpoint: bool = Field(default=False, description="Also organize prompts by endpoint")
+
+
 class CaseCraftConfig(BaseModel):
     """Main CaseCraft configuration."""
     
     llm: LLMConfig = Field(default_factory=LLMConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
+    prompt: PromptConfig = Field(default_factory=PromptConfig)
     
     @validator("llm", pre=True)
     def validate_llm_config(cls, v):
@@ -70,5 +83,12 @@ class CaseCraftConfig(BaseModel):
         """Validate processing configuration."""
         if isinstance(v, dict):
             return ProcessingConfig(**v)
+        return v
+    
+    @validator("prompt", pre=True)
+    def validate_prompt_config(cls, v):
+        """Validate prompt configuration."""
+        if isinstance(v, dict):
+            return PromptConfig(**v)
         return v
 
