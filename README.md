@@ -8,6 +8,8 @@
 - **通用化改进**: 移除所有行业特定的硬编码，支持任何行业的 API
 - **多语言支持**: 新增 `--lang` 参数，支持模块名称的中英文自动翻译
 - **智能前缀生成**: 自动为每个模块生成唯一的前缀标识符
+- **配置文件精简**: 优化 `default_templates.yaml`，移除已过时的模块映射配置
+- **Excel 格式增强**: 完善 Excel 输出支持，支持自定义模板和合并输出
 
 ## 📅 之前更新 (2025-08-18)
 
@@ -180,6 +182,27 @@ casecraft generate api.json --provider glm --no-auto-detect --workers 1
 
 # 23. 生成认证模块测试用例（中文显示）
 casecraft generate api.json --provider qwen --include-tag auth --lang zh --workers 3
+
+# 24. 生成Excel格式测试用例
+casecraft generate api.json --provider glm --format excel --workers 1
+
+# 25. 使用自定义Excel模板
+casecraft generate api.json --provider glm --format excel --config my_excel_template.yaml --workers 1
+
+# 26. 合并所有端点到一个Excel文件
+casecraft generate api.json --provider qwen --format excel --merge-excel --workers 3
+
+# 27. 生成特定优先级的测试用例
+casecraft generate api.json --provider glm --priority P0 --workers 1
+
+# 28. 零配置快速开始（最简单）
+casecraft generate api.json --provider glm --workers 1
+
+# 29. 保存LLM提示词用于调试
+casecraft generate api.json --provider glm --save-prompts --prompts-dir debug_prompts --workers 1
+
+# 30. 同时保存提示词和响应
+casecraft generate api.json --provider glm --save-prompts --save-responses --workers 1
 ```
 
 #### Workers 参数使用指南
@@ -232,14 +255,57 @@ casecraft generate api.json --provider qwen --include-tag "auth" --workers 3
 - `--include-path`: 只包含匹配模式的路径
 - `--include-method`: 只包含指定HTTP方法的端点（如 POST, GET）
 - `--exclude-method`: 排除指定HTTP方法的端点
+- `--format`: 输出格式 (json/excel/compact/pretty)，默认 json
+- `--config`: 自定义模板配置文件（主要用于Excel格式）
+- `--merge-excel`: 合并所有端点到一个Excel文件的多个工作表
+- `--priority`: 只生成特定优先级的测试用例 (P0/P1/P2/all)
 - `--lang`: 选择语言 (zh/en)，用于模块名称的本地化显示
 - `--auto-detect/--no-auto-detect`: 启用或禁用自动模块检测（默认启用）
+- `--save-prompts`: 保存LLM提示词到文件（用于调试）
+- `--prompts-dir`: 提示词保存目录（默认：`prompts`）
+- `--save-responses`: 同时保存LLM响应（与--save-prompts配合使用）
 - `--workers, -w`: 并发工作线程数（根据提供商和端点数量调整）
 - `--force`: 强制重新生成所有测试用例
 - `--dry-run`: 预览模式，不调用 LLM
 - `--organize-by`: 按标签组织输出文件
 - `--quiet, -q`: 静默模式（仅显示警告和错误）
 - `--verbose, -v`: 详细模式（显示调试信息）
+
+## 零配置使用
+
+CaseCraft 现已支持**零配置**即可使用，系统会自动：
+- 🔧 检测和分组 API 模块
+- 🏷️ 生成唯一的模块前缀
+- 📊 分配合理的测试优先级
+- 🌐 识别常见资源并翻译
+
+### Excel 格式输出
+
+生成 Excel 格式的测试用例文档：
+
+```bash
+# 基础 Excel 输出
+casecraft generate api.json --provider glm --format excel
+
+# 合并到单个 Excel 文件
+casecraft generate api.json --provider glm --format excel --merge-excel
+
+# 使用自定义 Excel 模板
+cat > my_excel.yaml << EOF
+excel:
+  columns:
+    - header: '编号'
+      field: 'case_id'
+      width: 15
+    - header: '名称'
+      field: 'name'
+      width: 40
+  styles:
+    header_bg_color: '0066CC'
+EOF
+
+casecraft generate api.json --provider glm --format excel --config my_excel.yaml
+```
 
 ## 配置
 
