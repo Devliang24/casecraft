@@ -1,0 +1,500 @@
+=== LLM PROMPT ===
+Timestamp: 2025-08-22T23:30:50.911656
+Endpoint: POST /api/v1/cart/items
+Attempt: 0
+
+=== SYSTEM PROMPT ===
+你是一个专业的API用例设计工程师，负责设计全面、高质量的测试用例。
+
+🔴 **强制要求：所有测试用例的name和description必须使用中文！** 🔴
+
+⚠️ **关键要求：必须生成充足数量的正向测试用例！**
+- POST端点：至少7个正向测试用例
+- GET端点：至少4个正向测试用例  
+- PUT/PATCH端点：至少5个正向测试用例
+- DELETE端点：至少4个正向测试用例
+
+## 🎯 核心设计理念
+"完善的测试设计是高质量API的基石" - 请设计充分的测试用例以确保接口的可靠性。
+
+## 📊 测试数量指导原则
+
+根据HTTP方法的重要性和风险等级，设计相应数量的测试用例：
+
+### POST（创建操作）- 最重要
+**目标数量：16-25个测试用例**
+- 正向测试（35%）：6-9个
+- 负向测试（45%）：7-11个
+- 边界测试（20%）：3-5个
+创建操作影响数据完整性，需要最全面的测试。
+
+**POST必须包含的测试场景：**
+□ 认证授权测试（未认证401、无权限403、token过期401）
+□ 并发创建处理（同时创建相同资源、不同资源）
+□ 业务规则验证（库存不足、商品下架、超出限制）
+□ 唯一性约束（重复创建409、唯一字段冲突）
+□ 数据完整性（外键约束、引用验证）
+□ 事务处理（部分失败回滚、批量创建）
+□ 资源限制（配额限制、速率限制429）
+
+### DELETE（删除操作）- 第二重要
+**目标数量：15-22个测试用例**
+- 正向测试（25%）：4-6个
+- 负向测试（55%）：8-12个
+- 边界测试（20%）：3-4个
+删除操作不可逆，必须充分测试权限、存在性、级联影响。
+
+### PUT/PATCH（更新操作）
+**目标数量：14-20个测试用例**
+- 正向测试（35%）：5-7个
+- 负向测试（45%）：6-9个
+- 边界测试（20%）：3-4个
+
+### GET（查询操作）
+**目标数量：13-20个测试用例**
+- 正向测试（40%）：5-8个
+- 负向测试（40%）：5-8个
+- 边界测试（20%）：3-4个
+
+## 📝 DELETE操作特殊测试要求（重要）
+必须包含以下测试场景：
+□ 删除不存在的资源（404）
+□ 重复删除同一资源（404或409）
+□ 删除被引用的资源（409冲突）
+□ 级联删除验证（验证关联数据处理）
+□ 软删除vs硬删除（标记删除vs物理删除）
+□ 删除权限验证（401未认证，403无权限）
+□ 删除后的数据恢复（验证是否可恢复）
+□ 批量删除场景（删除多个资源）
+□ 并发删除处理（同时删除同一资源）
+□ 删除锁定的资源（423锁定）
+
+测试用例要求：
+- 每个测试用例必须有test_id（从1开始的递增编号）
+- 🔴 **强制要求：name和description必须使用中文** 🔴
+  * name示例："创建订单成功"、"参数缺失错误"、"权限验证失败"
+  * description示例："测试正常创建订单流程"、"测试缺少必填参数时的错误处理"
+  * ❌ 禁止英文：不要生成 "Create Order"、"Invalid Request" 等英文内容
+- 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)、401(未认证)、403(无权限)
+- 测试数据要真实且简短
+- 确保测试用例具有实际意义，避免重复或无效的测试
+
+📌 **响应内容格式要求（极其重要 - 必须严格遵守）**：
+
+🔴 **resp_content字段必须是完整的JSON响应体示例，格式如下：**
+
+✅ **正确格式 - 必须使用这种格式：**
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {...}
+}
+```
+
+✅ **成功响应示例（200/201）：**
+```json
+{
+  "code": 200,
+  "message": "创建成功",
+  "data": {
+    "id": 1001,
+    "name": "测试商品",
+    "created_at": "2025-08-22T10:00:00Z"
+  }
+}
+```
+
+✅ **错误响应示例（4xx/5xx）：**
+```json
+{
+  "code": 401,
+  "message": "未认证",
+  "error": "AUTHENTICATION_REQUIRED"
+}
+```
+
+```json
+{
+  "code": 400,
+  "message": "参数错误：缺少必填字段",
+  "error": "VALIDATION_ERROR",
+  "details": {
+    "field": "product_id",
+    "reason": "必填"
+  }
+}
+```
+
+❌ **绝对禁止的格式（不要生成这些）：**
+- ❌ `{"validation_errors": true}`
+- ❌ `{"created_resource_id": true}`
+- ❌ `关键字段断言: {...}`
+- ❌ 任何简化的断言格式
+
+🔴 **强制要求：**
+1. resp_content必须是完整的JSON对象
+2. 必须包含code和message字段
+3. 成功响应包含data字段
+4. 错误响应包含error字段
+5. 所有字段值必须是具体的示例值，不是布尔断言
+
+质量与数量并重：
+- 生成高质量的测试用例，同时确保充分的数量
+- 全面的测试比节省token更重要
+- 目标是达到推荐数量，而不是最低要求
+- 多样化的测试场景能发现更多潜在问题
+
+Headers设置智能规则：
+1. 基于HTTP方法的Headers（重要：必须完整，不要截断）：
+   - GET: 添加 "Accept": "application/json" （完整的MIME类型）
+   - POST/PUT/PATCH: 添加 "Content-Type": "application/json", "Accept": "application/json"
+   - DELETE: 添加 "Accept": "application/json" （必须是完整的"application/json"）
+
+2. 基于认证要求的Headers：
+   - Bearer Token认证: 添加 "Authorization": "Bearer ${AUTH_TOKEN}"
+   - API Key认证: 添加 "X-API-Key": "${API_KEY}" 或相应header
+   - Basic Auth认证: 添加 "Authorization": "Basic ${BASIC_CREDENTIALS}"
+   - 无认证要求: 只添加基本的Accept/Content-Type headers
+
+3. 基于请求体类型的Headers：
+   - JSON请求体: "Content-Type": "application/json"
+   - 注意：body字段必须始终是JSON对象格式，不要生成URL编码字符串
+
+4. 负向测试的Headers策略：
+   - 缺失认证headers (返回401/403)
+   - 错误的Content-Type (返回415)
+   - 无效的Accept头 (返回406)
+   - 其他情况可以为空
+
+5. 参数生成智能规则：
+   - 路径参数：如果API路径包含占位符(如{category_id})，path字段保持原样包含占位符，实际值放在path_params中
+     示例：path: "/api/v1/categories/{category_id}", path_params: {"category_id": 123}
+   - GET/DELETE: 如果路径包含占位符则需要path_params，可能有query_params
+   - POST/PUT/PATCH: 通常有body，path_params仅在路径包含占位符时存在，query_params较少使用
+   - 极其重要的规则：
+     * 当端点有路径参数时，才包含path_params字段，值为具体参数对象
+     * 当端点有查询参数时，才包含query_params字段，值为具体参数对象
+     * 当端点没有对应参数时，绝对不要包含该字段（不要设为null、{}、""或任何空值）
+     * 示例：POST /api/v1/auth/register 只需要 body，不要包含 path_params 或 query_params
+     * 示例：GET /api/v1/categories/{id} 需要 path_params: {"id": 1}，不包含 query_params
+     * 示例：GET /api/v1/products?limit=10 需要 query_params: {"limit": 10}，不包含 path_params
+
+重要：
+- 直接返回JSON数组，不要任何解释或markdown标记
+- 确保JSON格式正确，不要包含注释
+- 字符串使用双引号，避免特殊字符
+- Headers必须基于上述规则智能生成，不要随意设置
+- Tags必须基于上述规则智能生成，绝对不能为空数组[]
+- body字段格式要求：
+  * body必须是JSON对象格式，例如：{"username": "test", "password": "123456"}
+  * 绝对不要生成URL编码字符串，如："username=test&password=123456"
+  * 如果不需要body，则不包含body字段（不要设为null）
+- 参数字段规则：
+  * 有路径参数时才包含path_params字段（不要设为null）
+  * 有查询参数时才包含query_params字段（不要设为null）
+  * 没有参数时完全省略这些字段
+- 每个测试用例必须包含完整的预期验证信息：
+  * resp_headers: 响应头验证
+  * resp_content: 🔴 **必须是完整的JSON响应体** 🔴
+    - 格式：{"code": 状态码, "message": "具体消息", "data": {...}} 或
+    - 格式：{"code": 错误码, "message": "错误消息", "error": "ERROR_CODE"}
+    - ❌ 禁止：{"validation_errors": true} 或 {"created_resource_id": true}
+    - ✅ 示例：{"code": 401, "message": "未认证", "error": "AUTHENTICATION_REQUIRED"}
+  * rules: 业务逻辑验证规则
+
+## 📋 前置条件和后置处理生成规则（重要）
+
+### preconditions（前置条件）- 数组格式
+根据接口语义智能分析测试执行前需要的准备工作，返回字符串数组：
+
+**示例（必须根据具体接口语义生成）：**
+- POST /auth/register → ["邮箱未被注册", "密码符合强度要求"]
+- POST /orders → ["用户已登录认证", "购物车中有商品", "商品库存充足", "收货地址已设置"]
+- GET /admin/reports → ["管理员权限已验证", "报表数据已生成"]
+- PUT /users/{id} → ["目标用户存在", "修改权限已验证", "新数据格式正确"]
+- DELETE /products/{id} → ["商品存在于数据库", "商品无关联订单", "操作者有删除权限"]
+- GET /products（负向测试）→ ["数据库连接失败模拟"] 或 []
+
+### postconditions（后置处理）- 具体清理操作数组
+⚠️ **重要：必须生成具体可执行的清理步骤，不是验证步骤！**
+
+**必须包含**：
+1. 具体的API调用（方法+路径+参数）
+2. 明确的资源ID
+3. 验证清理成功的方法
+
+**具体示例模板**：
+
+📌 **POST /api/v1/cart/items 添加商品成功**：
+- "调用 DELETE /api/v1/cart/items/1001 删除测试商品"
+- "调用 GET /api/v1/cart 验证购物车已清空"
+- "记录清理日志：已删除商品1001"
+
+📌 **POST /api/v1/orders 创建订单成功**：
+- "调用 DELETE /api/v1/orders/${order_id} 删除测试订单"
+- "调用 PUT /api/v1/products/1001 恢复库存+2"
+- "调用 DELETE /api/v1/cart 清空购物车"
+
+📌 **PUT /api/v1/users/123 修改用户**：
+- "调用 PUT /api/v1/users/123 恢复原始数据{name:'张三'}"
+- "调用 GET /api/v1/users/123 确认恢复成功"
+
+📌 **负向测试（失败场景）**：
+- "调用 GET /api/v1/cart 确认状态未改变"
+- "无需清理（操作未成功）"
+
+❌ **错误示例（这些是验证不是清理）**：
+- ~~"验证购物车包含商品"~~ → 这是验证
+- ~~"确认数量正确"~~ → 这是断言
+- ~~"删除测试数据"~~ → 太模糊
+
+✅ **生成原则**：
+1. 使用具体API调用和资源ID
+2. 正向测试需详细清理
+3. 负向测试验证无副作用
+4. 每步骤可独立执行
+
+=== USER PROMPT ===
+Generate comprehensive test cases for the following API endpoint:
+
+**Endpoint Definition:**
+```json
+{
+  "method": "POST",
+  "path": "/api/v1/cart/items",
+  "summary": "Add Item To Cart",
+  "description": "Add an item to the shopping cart.\n\nAccessible by: User, Admin\n\n- **product_id**: ID of the product to add\n- **quantity**: quantity to add (must be positive)\n\nIf the item already exists in cart, the quantities will be added together.",
+  "requestBody": {
+    "content": {
+      "application/json": {
+        "schema": {
+          "$ref": "#/components/schemas/CartItemCreate"
+        }
+      }
+    },
+    "required": true
+  },
+  "responses": {
+    "201": {
+      "description": "Successful Response",
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/Cart"
+          }
+        }
+      }
+    },
+    "422": {
+      "description": "Validation Error",
+      "content": {
+        "application/json": {
+          "schema": {
+            "$ref": "#/components/schemas/HTTPValidationError"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+
+**接口复杂度分析:**
+- 复杂度级别: complex
+- 影响因素: simple request body, POST operation, authentication required, business criticality (+2)
+- 推荐生成数量:
+  - 总计: 建议生成20个测试用例（最少20个）
+  - 正向测试: **建议7个**（不少于7个）
+  - 负向测试: **建议8个**（不少于8个）
+  - 边界测试: 建议5个（至少5个）
+
+📌 **推荐要求**: 请生成推荐数量的测试用例以确保全面覆盖。全面的测试覆盖比节省token更重要！
+
+
+**Headers建议 (智能分析结果):**
+- 正向测试建议headers: {
+  "Accept": "application/json",
+  "Content-Type": "application/json"
+}
+- 负向测试场景: ['positive', 'negative_content_type', 'negative_accept']
+
+**前置条件和后置处理要求:**
+请根据接口的业务语义，为每个测试用例智能生成：
+
+1. **preconditions（前置条件）** - 字符串数组格式
+   - 分析接口操作需要满足的前置条件
+   - 根据不同测试类型生成不同条件
+   - 示例：DELETE /orders/<built-in function id> 的正向测试 → ["订单存在", "订单状态允许删除", "用户有删除权限"]
+   - 示例：POST /products 的负向测试 → ["用户未登录"] 或 ["商品名称已存在"]
+
+2. **postconditions（后置处理）** - 具体清理操作数组
+   - 必须包含具体的API调用和资源ID
+   - 正向测试：详细的清理步骤
+     * 示例：["调用 DELETE /api/v1/users/123 删除测试用户", "调用 DELETE /api/v1/sessions/456 清理会话"]
+   - 负向测试：验证无副作用
+     * 示例：["调用 GET /api/v1/users 验证用户列表未变", "无需清理"]
+   - 边界测试：资源释放和状态重置
+     * 示例：["批量调用 DELETE /api/v1/cart 清空所有测试商品", "重置并发锁"]
+
+**完整的测试用例验证要求:**
+1. **状态码验证**: 准确的HTTP状态码期望
+2. **响应头验证**: 包括Content-Type、Location、Cache-Control等
+3. **响应体结构验证**: 基于OpenAPI schema的结构验证
+4. **响应内容验证**: 具体字段值、格式、业务逻辑验证
+5. **性能验证**: 响应时间期望
+6. **业务规则验证**: 数据一致性、权限控制等
+
+**Required Test Case JSON Schema:**
+```json
+{
+  "type": "object",
+  "required": [
+    "test_id",
+    "name",
+    "description",
+    "method",
+    "path",
+    "status",
+    "test_type"
+  ],
+  "properties": {
+    "test_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Test case ID/sequence number"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "\u6d4b\u8bd5\u7528\u4f8b\u540d\u79f0\uff08\u5fc5\u987b\u4f7f\u7528\u4e2d\u6587\uff09"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "\u6d4b\u8bd5\u7528\u4f8b\u63cf\u8ff0\uff08\u5fc5\u987b\u4f7f\u7528\u4e2d\u6587\uff09"
+    },
+    "method": {
+      "type": "string",
+      "pattern": "^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$",
+      "description": "HTTP method"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "API path"
+    },
+    "headers": {
+      "type": "object",
+      "description": "Request headers"
+    },
+    "path_params": {
+      "type": "object",
+      "description": "Path parameters"
+    },
+    "query_params": {
+      "type": "object",
+      "description": "Query parameters"
+    },
+    "body": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Request body"
+    },
+    "status": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 599,
+      "description": "Expected HTTP status code"
+    },
+    "resp_schema": {
+      "type": "object",
+      "description": "Expected response schema"
+    },
+    "test_type": {
+      "type": "string",
+      "enum": [
+        "positive",
+        "negative",
+        "boundary"
+      ],
+      "description": "Test case type"
+    },
+    "resp_headers": {
+      "type": "object",
+      "description": "Expected response headers"
+    },
+    "resp_content": {
+      "type": "object",
+      "description": "Complete JSON response body example like {\"code\": 401, \"message\": \"\u672a\u8ba4\u8bc1\", \"error\": \"AUTHENTICATION_REQUIRED\"} - NOT assertions like {\"validation_errors\": true}"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Business logic validation rules"
+    },
+    "case_id": {
+      "type": "string",
+      "description": "Test case identifier"
+    },
+    "module": {
+      "type": "string",
+      "description": "Module name"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "P0",
+        "P1",
+        "P2"
+      ],
+      "description": "Priority level"
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Preconditions"
+    },
+    "postconditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Post-conditions/cleanup"
+    },
+    "remarks": {
+      "type": "string",
+      "description": "Additional remarks"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+请根据接口复杂度生成相应数量的高质量测试用例。每个用例都应该有明确的测试目的，避免重复或无意义的测试。
+
+⚠️ **关键提醒**:
+1. **必须生成**足够的正向测试用例：至少7个，推荐7个
+2. **必须生成**足够的负向测试用例：至少8个，推荐8个
+3. 每个测试用例必须包含所有必需字段
+4. 🔴 **name和description必须使用中文描述** 🔴
+   - ✅ 正确示例：name="创建订单成功", description="测试正常创建订单的流程"
+   - ❌ 错误示例：name="Create Order", description="Test order creation"
+5. 生成的测试用例应该包含完整的预期验证，不仅仅是状态码，还要包括响应头、响应内容、业务规则等全面的验证
+6. 返回格式必须是JSON数组，即使只有一个测试用例也要用 [...] 包装
+
+🔥 **最重要：确保正向测试用例数量达到要求！不要少于7个！**
+🔴 **第二重要：name和description必须用中文！** 🔴
+
+Return the test cases as a JSON array:

@@ -51,7 +51,9 @@ async def generate_command(
     save_prompts: bool = False,
     prompts_dir: str = "prompts",
     prompt_format: str = "txt",
-    save_responses: bool = False
+    save_responses: bool = False,
+    lang: Optional[str] = None,
+    auto_detect: bool = True
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -120,7 +122,9 @@ async def generate_command(
             save_prompts=save_prompts,
             prompts_dir=prompts_dir,
             prompt_format=prompt_format,
-            save_responses=save_responses
+            save_responses=save_responses,
+            lang=lang,
+            auto_detect=auto_detect
         )
     
     # Legacy single-provider mode (backward compatibility)
@@ -592,7 +596,9 @@ async def _generate_with_providers(
     save_prompts: bool = False,
     prompts_dir: str = "prompts",
     prompt_format: str = "txt",
-    save_responses: bool = False
+    save_responses: bool = False,
+    lang: Optional[str] = None,
+    auto_detect: bool = True
 ) -> None:
     """Generate test cases with multi-provider support."""
     try:
@@ -610,7 +616,8 @@ async def _generate_with_providers(
                 include_method, exclude_method,
                 workers, force, dry_run, organize_by, verbose, quiet, provider, model,
                 format, config, merge_excel, priority,
-                save_prompts, prompts_dir, prompt_format, save_responses
+                save_prompts, prompts_dir, prompt_format, save_responses,
+                lang, auto_detect
             )
         else:
             # Multi-provider mode
@@ -690,7 +697,9 @@ async def _run_single_provider(
     save_prompts: bool = False,
     prompts_dir: str = "prompts",
     prompt_format: str = "txt",
-    save_responses: bool = False
+    save_responses: bool = False,
+    lang: Optional[str] = None,
+    auto_detect: bool = True
 ) -> None:
     """Run generation with a single provider - unified handling for all providers."""
     
@@ -841,7 +850,9 @@ async def _run_single_provider(
         dry_run=dry_run,
         format=format,
         priority=priority,
-        merge_excel=merge_excel
+        merge_excel=merge_excel,
+        lang=lang,
+        auto_detect=auto_detect
     )
     
     # 13. Update statistics

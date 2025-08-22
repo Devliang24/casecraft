@@ -440,6 +440,18 @@ def cleanup(ctx, logs, test_cases, debug_files, all, dry_run, keep_days, summary
     is_flag=True,
     help="Also save LLM responses along with prompts"
 )
+@click.option(
+    "--lang",
+    type=click.Choice(["zh", "en"]),
+    default=None,
+    help="Optional language for module names (zh=Chinese, en=English)"
+)
+@click.option(
+    "--auto-detect",
+    is_flag=True,
+    default=True,
+    help="Automatically detect modules from API structure (default: True)"
+)
 @click.pass_context
 def generate(
     ctx: click.Context,
@@ -468,6 +480,8 @@ def generate(
     prompts_dir: str,
     prompt_format: str,
     save_responses: bool,
+    lang: str,
+    auto_detect: bool,
 ) -> None:
     """Generate test cases from API documentation.
     
@@ -549,7 +563,9 @@ def generate(
         save_prompts=save_prompts,
         prompts_dir=prompts_dir,
         prompt_format=prompt_format,
-        save_responses=save_responses
+        save_responses=save_responses,
+        lang=lang,
+        auto_detect=auto_detect
     )
 
 

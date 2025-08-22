@@ -218,7 +218,9 @@ class GeneratorEngine:
         dry_run: bool = False,
         format: str = "json",
         priority: str = "all",
-        merge_excel: bool = False
+        merge_excel: bool = False,
+        lang: Optional[str] = None,
+        auto_detect: bool = True
     ) -> GenerationResult:
         """Generate test cases from API documentation.
         
@@ -331,6 +333,25 @@ class GeneratorEngine:
                 
                 # Initialize LLM components with API version
                 await self._initialize_llm_components(api_spec.version)
+                
+                # Detect modules if auto_detect is enabled
+                module_info = {}
+                if auto_detect:
+                    from casecraft.core.analysis.module_detector import ZeroConfigModuleDetector
+                    detector = ZeroConfigModuleDetector(lang=lang)
+                    module_info = detector.detect(to_generate)
+                    
+                    if not self.quiet and module_info:
+                        self.console.print(f"[blue]🔍 Detected {len(module_info)} modules[/blue]")
+                        for module_name, info in list(module_info.items())[:5]:
+                            display_name = info.get('display_name', module_name)
+                            self.console.print(f"  • {display_name} ({info['prefix']}) - {info['endpoint_count']} endpoints")
+                        if len(module_info) > 5:
+                            self.console.print(f"  ... and {len(module_info) - 5} more")
+                
+                # Pass module info to test generator
+                if hasattr(self, '_test_generator'):
+                    self._test_generator.module_info = module_info
                 
                 # Generate test cases
                 await self._generate_test_cases(to_generate, result)

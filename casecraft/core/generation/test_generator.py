@@ -71,6 +71,9 @@ class TestCaseGenerator:
         self.module_analyzer = ModuleAnalyzer(self.template_manager)
         self.case_id_generator = CaseIdGenerator(self.module_analyzer)
         
+        # Module info from detector (will be set by engine if auto-detect is enabled)
+        self.module_info = {}
+        
         # Prompt saving configuration
         self.prompt_config = prompt_config
     
@@ -702,7 +705,7 @@ Attempt: {attempt}
 **POST必须包含的测试场景：**
 □ 认证授权测试（未认证401、无权限403、token过期401）
 □ 并发创建处理（同时创建相同资源、不同资源）
-□ 业务规则验证（库存不足、商品下架、超出限制）
+□ 业务规则验证（资源不足、资源不可用、超出限制）
 □ 唯一性约束（重复创建409、唯一字段冲突）
 □ 数据完整性（外键约束、引用验证）
 □ 事务处理（部分失败回滚、批量创建）
@@ -743,9 +746,9 @@ Attempt: {attempt}
 测试用例要求：
 - 每个测试用例必须有test_id（从1开始的递增编号）
 - 🔴 **强制要求：name和description必须使用中文** 🔴
-  * name示例："创建订单成功"、"参数缺失错误"、"权限验证失败"
-  * description示例："测试正常创建订单流程"、"测试缺少必填参数时的错误处理"
-  * ❌ 禁止英文：不要生成 "Create Order"、"Invalid Request" 等英文内容
+  * name示例："创建资源成功"、"参数缺失错误"、"权限验证失败"
+  * description示例："测试正常创建资源流程"、"测试缺少必填参数时的错误处理"
+  * ❌ 禁止英文：不要生成 "Create Resource"、"Invalid Request" 等英文内容
 - 选择合适的状态码：200(成功)、400(参数错误)、404(资源不存在)、422(验证失败)、401(未认证)、403(无权限)
 - 测试数据要真实且简短
 - 确保测试用例具有实际意义，避免重复或无效的测试
@@ -770,7 +773,7 @@ Attempt: {attempt}
   "message": "创建成功",
   "data": {
     "id": 1001,
-    "name": "测试商品",
+    "name": "测试数据",
     "created_at": "2025-08-22T10:00:00Z"
   }
 }
@@ -791,7 +794,7 @@ Attempt: {attempt}
   "message": "参数错误：缺少必填字段",
   "error": "VALIDATION_ERROR",
   "details": {
-    "field": "product_id",
+    "field": "resource_id",
     "reason": "必填"
   }
 }

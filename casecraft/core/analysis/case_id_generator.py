@@ -1,20 +1,24 @@
 """Case ID generator for test cases."""
 
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from casecraft.core.analysis.module_analyzer import ModuleAnalyzer
+from casecraft.core.analysis.module_detector import ZeroConfigModuleDetector
 
 
 class CaseIdGenerator:
     """Generates unique case IDs for test cases."""
     
-    def __init__(self, module_analyzer: Optional[ModuleAnalyzer] = None):
+    def __init__(self, module_analyzer: Optional[ModuleAnalyzer] = None, 
+                 module_info: Optional[Dict[str, Any]] = None):
         """Initialize the case ID generator.
         
         Args:
-            module_analyzer: Module analyzer instance
+            module_analyzer: Module analyzer instance (legacy)
+            module_info: Module information from ZeroConfigModuleDetector
         """
         self.module_analyzer = module_analyzer or ModuleAnalyzer()
+        self.module_info = module_info or {}
     
     def generate(self, module: str, method: str, index: int, test_type: str = None) -> str:
         """Generate a case ID.
@@ -28,8 +32,11 @@ class CaseIdGenerator:
         Returns:
             Case ID string (e.g., 'USR-POS-001' for positive, 'USR-NEG-001' for negative)
         """
-        # Get module prefix
-        prefix = self.module_analyzer.get_module_prefix(module)
+        # Get module prefix - first try module_info from detector, then fallback to analyzer
+        if module in self.module_info and 'prefix' in self.module_info[module]:
+            prefix = self.module_info[module]['prefix']
+        else:
+            prefix = self.module_analyzer.get_module_prefix(module)
         
         # Get type code based on test_type if provided, otherwise use method
         if test_type:
