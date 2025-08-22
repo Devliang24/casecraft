@@ -2,7 +2,14 @@
 
 使用多个 LLM 提供商解析 API 文档（OpenAPI/Swagger）并生成结构化测试用例的 CLI 工具。
 
-## 🆕 最新更新 (2025-08-18)
+## 🆕 最新更新 (2025-08-22)
+
+- **零配置模块检测**: 自动检测和分组 API 模块，无需任何配置文件
+- **通用化改进**: 移除所有行业特定的硬编码，支持任何行业的 API
+- **多语言支持**: 新增 `--lang` 参数，支持模块名称的中英文自动翻译
+- **智能前缀生成**: 自动为每个模块生成唯一的前缀标识符
+
+## 📅 之前更新 (2025-08-18)
 
 - **配置管理优化**: 重构 max_tokens 配置管理，各 Provider 配置更加清晰
 - **Provider 配置集中化**: 每个 Provider 的所有配置（包括 max_tokens）在 .env 文件中统一管理
@@ -42,6 +49,8 @@
 ## 核心特性
 
 - 🧠 **智能推断引擎**: 基于OpenAPI规范的智能分析，支持任何RESTful API（不限于电商）
+- 🔧 **零配置模块检测**: 自动检测和分组 API 模块，无需任何配置文件
+- 🌐 **多语言模块名称**: 支持中英文自动翻译模块名称（--lang 参数）
 - 🎯 **智能测试用例生成**: 支持多个 LLM 提供商（GLM、Qwen、DeepSeek等）自动生成全面的测试场景
 - 🤖 **多提供商支持**: 灵活切换和组合使用不同的 LLM 提供商
 - 📊 **动态用例数量**: 根据接口复杂度智能调整生成数量（简单5-6个，复杂10-12个）
@@ -162,6 +171,15 @@ casecraft cleanup --test-cases
 
 # 20. 使用本地模型生成测试用例
 casecraft generate api.json --provider local --model llama2 --include-method POST --workers 4
+
+# 21. 使用中文显示模块名称
+casecraft generate api.json --provider glm --lang zh --workers 1
+
+# 22. 禁用自动模块检测
+casecraft generate api.json --provider glm --no-auto-detect --workers 1
+
+# 23. 生成认证模块测试用例（中文显示）
+casecraft generate api.json --provider qwen --include-tag auth --lang zh --workers 3
 ```
 
 #### Workers 参数使用指南
@@ -214,6 +232,8 @@ casecraft generate api.json --provider qwen --include-tag "auth" --workers 3
 - `--include-path`: 只包含匹配模式的路径
 - `--include-method`: 只包含指定HTTP方法的端点（如 POST, GET）
 - `--exclude-method`: 排除指定HTTP方法的端点
+- `--lang`: 选择语言 (zh/en)，用于模块名称的本地化显示
+- `--auto-detect/--no-auto-detect`: 启用或禁用自动模块检测（默认启用）
 - `--workers, -w`: 并发工作线程数（根据提供商和端点数量调整）
 - `--force`: 强制重新生成所有测试用例
 - `--dry-run`: 预览模式，不调用 LLM
@@ -458,7 +478,7 @@ DELETE /api/v1/cart/items/{id} → "删除商品"
 
 ### 技术优势
 
-1. **零硬编码**: 完全移除了200+行硬编码路径映射
+1. **零配置设计**: 自动检测模块结构，无需配置文件
 2. **通用兼容**: 支持任何RESTful API设计规范
 3. **轻量级**: 仅增加inflect一个依赖（35KB）
 4. **高性能**: 推断速度<50ms，几乎无性能影响
