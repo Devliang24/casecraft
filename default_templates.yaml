@@ -1,33 +1,21 @@
-# Default template configuration for CaseCraft
-# This file defines the default mappings and rules for test case generation
-
-modules:
-  patterns:
-    - regex: '/users?/'
-      name: '用户管理'
-      prefix: 'USR'
-    - regex: '/auth|login|register/'
-      name: '认证授权'
-      prefix: 'AUTH'
-    - regex: '/orders?/'
-      name: '订单系统'
-      prefix: 'ORD'
-    - regex: '/products?/'
-      name: '商品管理'
-      prefix: 'PRD'
-    - regex: '/cart/'
-      name: '购物车'
-      prefix: 'CART'
-    - regex: '/payment/'
-      name: '支付系统'
-      prefix: 'PAY'
-    - regex: '/categories?/'
-      name: '分类管理'
-      prefix: 'CAT'
-    - regex: '/admin/'
-      name: '后台管理'
-      prefix: 'ADM'
-  default: '通用接口'
+# CaseCraft 默认配置模板
+# 
+# 注意：模块检测现已自动化，无需手动配置
+# - 使用 --lang zh/en 切换语言显示
+# - 使用 --no-auto-detect 禁用自动检测
+# - 使用 --config 提供自定义配置
+#
+# 本文件主要用于：
+# 1. Excel 输出格式配置
+# 2. 测试用例优先级规则
+#
+# 如需自定义模块映射（仅在使用 --no-auto-detect 时生效）：
+# modules:
+#   patterns:
+#     - regex: '/custom-api/'
+#       name: '自定义模块'
+#       prefix: 'CUST'
+#   default: '通用接口'
 
 priorities:
   rules:

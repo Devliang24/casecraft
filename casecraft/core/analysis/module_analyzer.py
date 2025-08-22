@@ -29,12 +29,16 @@ class ModuleAnalyzer:
         Returns:
             Module name
         """
+        # If no patterns configured (zero-config mode), use default extraction
+        if not self.patterns:
+            return self._get_default_module(endpoint)
+        
         path_lower = endpoint.path.lower()
         
         # Check each pattern configuration
         for pattern_config in self.patterns:
             pattern = pattern_config.get('regex', '')
-            if re.search(pattern, path_lower):
+            if pattern and re.search(pattern, path_lower):
                 return pattern_config.get('name', self.default_module)
         
         # Fall back to default module extraction
@@ -49,11 +53,13 @@ class ModuleAnalyzer:
         Returns:
             Module prefix (e.g., 'USR' for '用户管理')
         """
-        # Check if module has a configured prefix
-        for pattern_config in self.patterns:
-            if pattern_config.get('name') == module:
-                return pattern_config.get('prefix', self._generate_prefix(module))
+        # If patterns exist, check if module has a configured prefix
+        if self.patterns:
+            for pattern_config in self.patterns:
+                if pattern_config.get('name') == module:
+                    return pattern_config.get('prefix', self._generate_prefix(module))
         
+        # Zero-config mode or no match: generate prefix
         return self._generate_prefix(module)
     
     def _get_default_module(self, endpoint: APIEndpoint) -> str:

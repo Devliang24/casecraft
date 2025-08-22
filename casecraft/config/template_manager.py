@@ -56,16 +56,19 @@ class TemplateManager:
         """Get module mapping patterns.
         
         Returns:
-            List of module pattern configurations
+            List of module pattern configurations, empty if not configured
         """
+        # Return empty list if modules section doesn't exist
+        # This allows zero-config module detection to take over
         return self.config.get('modules', {}).get('patterns', [])
     
     def get_default_module(self) -> str:
         """Get default module name.
         
         Returns:
-            Default module name
+            Default module name, defaults to '通用接口' if not configured
         """
+        # Provide sensible default even if modules section is missing
         return self.config.get('modules', {}).get('default', '通用接口')
     
     def get_priority_rules(self) -> list:
