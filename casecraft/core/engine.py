@@ -23,6 +23,7 @@ from casecraft.utils.exceptions import ErrorHandler, ErrorContext, convert_excep
 from casecraft.utils.concurrency import ConcurrencyController
 from casecraft.utils.constants import DEFAULT_API_PARSE_TIMEOUT
 from casecraft.utils.ui import UI
+from casecraft.core.analysis.priority_assigner import PriorityAssigner
 
 
 class GeneratorError(Exception):
@@ -606,6 +607,14 @@ class GeneratorEngine:
                 progress_callback=update_progress if self.config.llm.stream else None
             )
             collection = generation_result.test_cases
+            
+            # Assign priorities to test cases
+            priority_assigner = PriorityAssigner()
+            if collection and collection.test_cases:
+                collection.test_cases = priority_assigner.assign_priorities(collection.test_cases)
+                # Log priority distribution
+                distribution = priority_assigner.get_priority_distribution(collection.test_cases)
+                self.logger.file_only(f"Priority distribution: {distribution}", level="DEBUG")
             
             # Add token usage to result statistics
             if generation_result.token_usage:
